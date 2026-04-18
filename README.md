@@ -16,19 +16,21 @@
 - 🔗 **Tích hợp Affiliate:** Hỗ trợ nhúng link Affiliate đa dạng xoay tua mỗi khi app được kích hoạt.
 - 📊 **Theo Dõi Bằng Bảng Mạch:** Giao diện điều khiển (GUI) có thể mở lên để dễ dàng theo dõi chi tiết % tiến độ.
 
-## 📦 Cài Đặt Khởi Tạo
+## 📦 Cài Đặt Khởi Tạo (Phiên bản Đóng Gói)
 
-Bạn cần phải cài đặt **Python 3.10+** trở lên. Chú ý kích chọn `Add Python to PATH` trong lúc cài màn hình đầu.
+Ứng dụng hiện đã được chưng cất thành **[ 1 Tệp .EXE duy nhất ]**, giúp bạn chạy lút cán không cần cài Python!
 
-1. **Clone repository này về:**
+1. Truy cập vào mục **[Releases]** (Nằm ở cột bên phải của kho Github này) hoặc dán link này vào trình duyệt: `https://github.com/huyhoangnp11-afk/MSRFarmer/releases`.
+2. Tải về file `MSR_Farmer_Pro.exe`.
+3. Nhấp đúp chuột và bắt đầu cày!
+
+## 🚀 Tính năng dành cho Phát triển (Dành cho Dev / Mã Nguồn)
+
+Nếu bạn là Dev và muốn chạy trực tiếp bằng mã nguồn mở:
    ```bash
    git clone https://github.com/huyhoangnp11-afk/MSRFarmer.git
-   cd MSRFarmer
-   ```
-
-2. **Cài đặt thư viện:**
-   ```bash
    pip install -r requirements.txt
+   python MSR_Farmer_Core.py
    ```
 
 ## 🚀 Hướng Dẫn Sử Dụng

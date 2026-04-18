@@ -1,0 +1,4081 @@
+id,name,filePath,startLine,endLine,isExported,content,description
+"Function:tray_app.py:__init__","__init__","tray_app.py",17,54,false,"
+class FarmTrayApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.withdraw() # Hide initially
+        self.process = None
+        self.log_window_open = False
+        
+        # Determine Window Title and Icon
+        self.root.title(""Microsoft Rewards Farmer"")
+        try:
+            self.root.iconphoto(False, tk.PhotoImage(file=ICON_PATH))
+        except: pass
+
+        # Load Tray Icon
+        try:
+            self.icon_image = Image.open(ICON_PATH)
+        except:
+            self.icon_image = Image.new('RGB', (64, 64), color = (0, 120, 215))
+
+        self.menu = pystray.Menu(
+            pystray.MenuItem(""Status: Stopped "", self.do_nothing, enabled=False),
+            pystray.MenuItem(""Start Farming"", self.start_farming),
+            pystray.MenuItem(""Stop Farming"", self.stop_farming),
+            pystray.MenuItem(""View Logs"", self.show_log_window_thread_safe),
+            pystray.MenuItem(""Exit"", self.exit_app)
+        )
+        
+        self.icon = pystray.Icon(""MSRewardsFarmer"", self.icon_image, ""Microsoft Rewards Farmer"", self.menu)
+        
+        # Start Tray in separate thread
+        self.tray_thread = threading.Thread(target=self.icon.run)
+        self.tray_thread.daemon = True
+        self.tray_thread.start()
+
+        # Start Log Polling in Tkinter Main Loop
+        self.current_log_file = None
+        self.last_pos = 0
+        self.update_log_gui()
+        self.monitor_process_gui()
+
+    def do_nothing(self): pass
+",""
+"Function:tray_app.py:do_nothing","do_nothing","tray_app.py",56,56,true,"        self.monitor_process_gui()
+
+    def do_nothing(self): pass
+
+    def update_menu_status(self, status, running):
+",""
+"Function:tray_app.py:update_menu_status","update_menu_status","tray_app.py",58,73,true,"    def do_nothing(self): pass
+
+    def update_menu_status(self, status, running):
+        # We need to recreate the icon menu?
+        # Accessing icon from main thread might be unsafe if icon.run() is in another thread?
+        # pystray isn't fully thread safe.
+        # But updating 'menu' property is usually atomic.
+        
+        # Better: Restart icon? No.
+        # Just notify user via balloon?
+        # Or blindly update?
+        
+        items = list(self.menu.items)
+        items[0] = pystray.MenuItem(f""Status: {status}"", self.do_nothing, enabled=False)
+        
+        # Rebuild menu
+        new_menu = pystray.Menu(*items)
+        self.icon.menu = new_menu
+
+    def start_farming(self, icon, item):
+",""
+"Function:tray_app.py:start_farming","start_farming","tray_app.py",75,84,true,"        self.icon.menu = new_menu
+
+    def start_farming(self, icon, item):
+        if self.process and self.process.poll() is None:
+            return
+            
+        cmd = [sys.executable, SCRIPT_PATH, ""--headless""] # Default hidden
+        self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=os.getcwd(), creationflags=subprocess.CREATE_NO_WINDOW)
+        self.update_menu_status(""Running "", True)
+        
+        # Notify
+        self.icon.notify(""Farming Started in Background "", ""Microsoft Rewards Farmer"")
+
+    def stop_farming(self, icon, item):
+",""
+"Function:tray_app.py:stop_farming","stop_farming","tray_app.py",86,95,true,"        self.icon.notify(""Farming Started in Background "", ""Microsoft Rewards Farmer"")
+
+    def stop_farming(self, icon, item):
+        if self.process:
+            self.process.terminate()
+            self.process = None
+        
+        # Kill all related
+        subprocess.run(""taskkill /F /IM python.exe /IM msedgedriver.exe /IM msedge.exe"", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        self.update_menu_status(""Stopped "", False)
+        self.icon.notify(""Farming Stopped "", ""Microsoft Rewards Farmer"")
+
+    def monitor_process_gui(self):
+",""
+"Function:tray_app.py:monitor_process_gui","monitor_process_gui","tray_app.py",97,104,true,"        self.icon.notify(""Farming Stopped "", ""Microsoft Rewards Farmer"")
+
+    def monitor_process_gui(self):
+        # check process status periodically
+        if self.process and self.process.poll() is not None:
+            self.process = None
+            self.update_menu_status(""Stopped "", False)
+            self.icon.notify(""Process Finished"", ""Microsoft Rewards Farmer"")
+            
+        self.root.after(2000, self.monitor_process_gui)
+
+    def show_log_window_thread_safe(self, icon, item):
+",""
+"Function:tray_app.py:show_log_window_thread_safe","show_log_window_thread_safe","tray_app.py",106,108,true,"        self.root.after(2000, self.monitor_process_gui)
+
+    def show_log_window_thread_safe(self, icon, item):
+        # Call from tray thread -> Schedule on main thread
+        self.root.after(0, self.open_log_window)
+
+    def open_log_window(self):
+",""
+"Function:tray_app.py:open_log_window","open_log_window","tray_app.py",110,127,true,"        self.root.after(0, self.open_log_window)
+
+    def open_log_window(self):
+        self.root.deiconify()
+        self.log_window_open = True
+        
+        # Setup UI if empty
+        if not self.root.winfo_children():
+            self.text_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, font=(""Consolas"", 10), bg=""#1e1e1e"", fg=""#d4d4d4"")
+            self.text_area.pack(expand=True, fill='both')
+            
+            # Tags for coloring
+            self.text_area.tag_config(""INFO"", foreground=""#d4d4d4"")
+            self.text_area.tag_config(""WARNING"", foreground=""#cca700"")
+            self.text_area.tag_config(""ERROR"", foreground=""#f44747"")
+            self.text_area.tag_config(""SUCCESS"", foreground=""#6a9955"")
+            self.text_area.tag_config(""POINTS"", foreground=""#569cd6"")
+            self.text_area.tag_config(""HEADER"", foreground=""#c586c0"", font=(""Consolas"", 10, ""bold""))
+            
+            self.root.protocol(""WM_DELETE_WINDOW"", self.hide_log_window)
+
+    def hide_log_window(self):
+",""
+"Function:tray_app.py:hide_log_window","hide_log_window","tray_app.py",129,131,true,"            self.root.protocol(""WM_DELETE_WINDOW"", self.hide_log_window)
+
+    def hide_log_window(self):
+        self.root.withdraw()
+        self.log_window_open = False
+
+    def get_latest_log_file(self):
+",""
+"Function:tray_app.py:get_latest_log_file","get_latest_log_file","tray_app.py",133,137,true,"        self.log_window_open = False
+
+    def get_latest_log_file(self):
+        if not os.path.exists(LOG_DIR): return None
+        files = [os.path.join(LOG_DIR, f) for f in os.listdir(LOG_DIR) if f.startswith(""farm_log_"") and f.endswith("".log"")]
+        if not files: return None
+        return max(files, key=os.path.getmtime)
+
+    def update_log_gui(self):
+",""
+"Function:tray_app.py:update_log_gui","update_log_gui","tray_app.py",139,159,true,"        return max(files, key=os.path.getmtime)
+
+    def update_log_gui(self):
+        if self.log_window_open:
+            latest = self.get_latest_log_file()
+            if latest and latest != self.current_log_file:
+                self.current_log_file = latest
+                self.last_pos = 0
+                self.text_area.delete(1.0, tk.END)
+                
+            if self.current_log_file:
+                try:
+                    with open(self.current_log_file, ""r"", encoding=""utf-8"") as f:
+                        f.seek(self.last_pos)
+                        new_data = f.read()
+                        if new_data:
+                            self.last_pos = f.tell()
+                            for line in new_data.splitlines():
+                                self.append_clean_log(line)
+                            self.text_area.see(tk.END)
+                except: pass
+                
+        self.root.after(1000, self.update_log_gui)
+
+    def append_clean_log(self, raw_line):
+",""
+"Function:tray_app.py:append_clean_log","append_clean_log","tray_app.py",161,193,true,"        self.root.after(1000, self.update_log_gui)
+
+    def append_clean_log(self, raw_line):
+        # Format: 2026-02-07 09:51:01,766 - [Farming_Profile] - INFO - Msg
+        match = re.match(r""^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}),\d{3} - \[(.*?)\] - (.*?) - (.*)"", raw_line)
+        if match:
+            date, time_str, profile, level, msg = match.groups()
+            
+            icon = """"
+            tag = ""INFO""
+            
+            if ""SEARCH"" in msg.upper(): icon = """"
+            if ""MOBILE"" in msg.upper(): icon = """"
+            if ""PC"" in msg.upper(): icon = """"
+            if ""POINTS"" in msg.upper() or ""ĐIỂM"" in msg.upper(): 
+                icon = """"
+                tag = ""POINTS""
+            if ""ERROR"" in level or ""ERROR"" in msg.upper(): 
+                icon = ""❌""
+                tag = ""ERROR""
+            if ""WARNING"" in level: 
+                icon = ""⚠️""
+                tag = ""WARNING""
+            if ""SUCCESS"" in msg.upper() or ""HOÀN THÀNH"" in msg.upper(): 
+                icon = ""✅""
+                tag = ""SUCCESS""
+            if ""LOGIN"" in msg.upper(): icon = """"
+            
+            # Clean profile name
+            p_name = ""Farming"" if ""Farming"" in profile else profile
+            
+            formatted = f""[{time_str}] {icon} {msg}\n""
+            self.text_area.insert(tk.END, formatted, tag)
+        else:
+            self.text_area.insert(tk.END, raw_line + ""\n"")
+
+    def exit_app(self, icon, item):
+",""
+"Function:tray_app.py:exit_app","exit_app","tray_app.py",195,199,true,"            self.text_area.insert(tk.END, raw_line + ""\n"")
+
+    def exit_app(self, icon, item):
+        self.stop_farming(icon, item)
+        icon.stop()
+        self.root.quit()
+        sys.exit()
+
+if __name__ == ""__main__"":
+",""
+"Function:multi_profile_launcher.py:get_all_profiles","get_all_profiles","multi_profile_launcher.py",44,56,true,")
+
+def get_all_profiles():
+    """"""Get list of profile folders from profiles directory.""""""
+    if not os.path.exists(PROFILES_DIR):
+        os.makedirs(PROFILES_DIR)
+        return []
+    
+    profiles = []
+    for item in os.listdir(PROFILES_DIR):
+        item_path = os.path.join(PROFILES_DIR, item)
+        if os.path.isdir(item_path) and not item.startswith('.'):
+            profiles.append(item)
+    
+    return profiles[:MAX_PROFILES]  # Limit to 6
+
+def log_result(profile_name, initial_points, final_points, status):
+",""
+"Function:multi_profile_launcher.py:log_result","log_result","multi_profile_launcher.py",58,66,true,"    return profiles[:MAX_PROFILES]  # Limit to 6
+
+def log_result(profile_name, initial_points, final_points, status):
+    """"""Log farming result to file.""""""
+    timestamp = datetime.now().strftime(""%Y-%m-%d %H:%M:%S"")
+    delta = ""N/A""
+    if isinstance(initial_points, int) and isinstance(final_points, int):
+        delta = f""+{final_points - initial_points}""
+    
+    with open(RESULTS_LOG, 'a', encoding='utf-8') as f:
+        f.write(f""{timestamp} | {profile_name:15} | {initial_points:>6} -> {final_points:>6} | {delta:>5} | {status}\n"")
+
+def farm_single_profile(profile_name, pc_searches=30, mobile_searches=20):
+",""
+"Function:multi_profile_launcher.py:farm_single_profile","farm_single_profile","multi_profile_launcher.py",68,128,true,"        f.write(f""{timestamp} | {profile_name:15} | {initial_points:>6} -> {final_points:>6} | {delta:>5} | {status}\n"")
+
+def farm_single_profile(profile_name, pc_searches=30, mobile_searches=20):
+    """"""Farm rewards for a single profile.""""""
+    profile_path = os.path.join(PROFILES_DIR, profile_name)
+    logging.info(f""="" * 50)
+    logging.info(f""[PROFILE] Starting: {profile_name}"")
+    logging.info(f""="" * 50)
+    
+    initial_points = ""Unknown""
+    final_points = ""Unknown""
+    status = ""FAILED""
+    
+    try:
+        # ===== PC SEARCHES =====
+        logging.info(f""[{profile_name}] Phase 1: PC Searches ({pc_searches})"")
+        driver = setup_driver(profile_path, is_mobile=False, headless=True)
+        
+        try:
+            driver.get(""https://rewards.bing.com/"")
+            time.sleep(5)
+            initial_points = get_current_points(driver)
+            logging.info(f""[{profile_name}] Initial Points: {initial_points}"")
+            
+            perform_searches(driver, count=pc_searches, mode=""PC"")
+            complete_daily_set_and_activities(driver)
+            
+        finally:
+            safe_driver_quit(driver)
+        
+        time.sleep(10)  # Brief pause between PC and Mobile
+        
+        # ===== MOBILE SEARCHES =====
+        logging.info(f""[{profile_name}] Phase 2: Mobile Searches ({mobile_searches})"")
+        driver = setup_driver(profile_path, is_mobile=True, headless=True)
+        
+        try:
+            perform_searches(driver, count=mobile_searches, mode=""MOBILE"")
+            
+            # Get final points
+            driver.get(""https://rewards.bing.com/"")
+            time.sleep(5)
+            final_points = get_current_points(driver)
+            logging.info(f""[{profile_name}] Final Points: {final_points}"")
+            
+        finally:
+            safe_driver_quit(driver)
+        
+        status = ""SUCCESS""
+        
+    except Exception as e:
+        logging.error(f""[{profile_name}] Error: {e}"")
+        status = f""ERROR: {str(e)[:50]}""
+    
+    # Log result
+    log_result(profile_name, initial_points, final_points, status)
+    
+    # Log to points history for Dashboard
+    try:
+        log_points(profile_name, initial_points, final_points)
+    except: pass
+    
+    return status == ""SUCCESS""
+
+def setup_profile(profile_name):
+",""
+"Function:multi_profile_launcher.py:setup_profile","setup_profile","multi_profile_launcher.py",130,146,true,"    return status == ""SUCCESS""
+
+def setup_profile(profile_name):
+    """"""Interactive setup for a single profile (login).""""""
+    profile_path = os.path.join(PROFILES_DIR, profile_name)
+    os.makedirs(profile_path, exist_ok=True)
+    
+    logging.info(f""[SETUP] Opening browser for {profile_name}..."")
+    logging.info(f""[SETUP] Please login to Microsoft Account, then close the browser."")
+    
+    driver = setup_driver(profile_path, is_mobile=False, headless=False)
+    
+    try:
+        driver.get(""https://rewards.bing.com/"")
+        input(f""Press ENTER after logging in for {profile_name}..."")
+    finally:
+        safe_driver_quit(driver)
+    
+    logging.info(f""[SETUP] Profile {profile_name} saved!"")
+
+def main():
+",""
+"Function:multi_profile_launcher.py:main","main","multi_profile_launcher.py",148,210,true,"    logging.info(f""[SETUP] Profile {profile_name} saved!"")
+
+def main():
+    parser = argparse.ArgumentParser(description=""Multi-Profile Rewards Farmer"")
+    parser.add_argument('--setup', type=str, help=""Setup a new profile (e.g., --setup Dad)"")
+    parser.add_argument('--list', action='store_true', help=""List all profiles"")
+    parser.add_argument('--profile', type=str, help=""Run only one specific profile"")
+    parser.add_argument('--pc', type=int, default=30, help=""Number of PC searches (default: 30)"")
+    parser.add_argument('--mobile', type=int, default=20, help=""Number of Mobile searches (default: 20)"")
+    args = parser.parse_args()
+    
+    # Setup mode
+    if args.setup:
+        setup_profile(args.setup)
+        return
+    
+    # List profiles
+    profiles = get_all_profiles()
+    
+    if args.list:
+        print(f""\n Profiles found in {PROFILES_DIR}:"")
+        for i, p in enumerate(profiles, 1):
+            print(f""   {i}. {p}"")
+        print(f""\n⚠️ Limit: {MAX_PROFILES} profiles (Microsoft household rule)"")
+        return
+    
+    if not profiles:
+        print(""❌ No profiles found!"")
+        print(f""   Create profile folders in: {PROFILES_DIR}"")
+        print(f""   Or run: python multi_profile_launcher.py --setup <ProfileName>"")
+        return
+    
+    # Run single profile
+    if args.profile:
+        if args.profile not in profiles:
+            print(f""❌ Profile '{args.profile}' not found!"")
+            return
+        farm_single_profile(args.profile, args.pc, args.mobile)
+        return
+    
+    # ===== RUN ALL PROFILES =====
+    logging.info(""="" * 60)
+    logging.info(f""MULTI-PROFILE LAUNCHER - {len(profiles)} profiles"")
+    logging.info(""="" * 60)
+    
+    success_count = 0
+    
+    for i, profile in enumerate(profiles):
+        logging.info(f""\n[{i+1}/{len(profiles)}] Processing: {profile}"")
+        
+        if farm_single_profile(profile, args.pc, args.mobile):
+            success_count += 1
+        
+        # Delay between profiles (except for last one)
+        if i < len(profiles) - 1:
+            import random
+            delay_minutes = random.randint(DELAY_BETWEEN_PROFILES_MIN, DELAY_BETWEEN_PROFILES_MAX)
+            logging.info(f""⏳ Waiting {delay_minutes} minutes before next profile..."")
+            time.sleep(delay_minutes * 60)
+    
+    # Summary
+    logging.info(""\n"" + ""="" * 60)
+    logging.info(f""COMPLETED: {success_count}/{len(profiles)} profiles successful"")
+    logging.info(f""Results saved to: {RESULTS_LOG}"")
+    logging.info(""="" * 60)
+
+if __name__ == ""__main__"":
+",""
+"Function:launcher_gui.py:get_edge_profiles","get_edge_profiles","launcher_gui.py",22,46,true,"MAX_PROFILES = 6
+
+def get_edge_profiles():
+    """"""Get list of Edge profiles with display names.""""""
+    import json
+    profiles = []
+    
+    try:
+        local_state_path = os.path.join(EDGE_USER_DATA, 'Local State')
+        if os.path.exists(local_state_path):
+            with open(local_state_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            info_cache = data.get('profile', {}).get('info_cache', {})
+            for folder_name, info in info_cache.items():
+                display_name = info.get('name', folder_name)
+                profile_path = os.path.join(EDGE_USER_DATA, folder_name)
+                if os.path.isdir(profile_path):
+                    profiles.append({
+                        'folder': folder_name,
+                        'name': display_name,
+                        'path': profile_path
+                    })
+    except Exception as e:
+        print(f""Error reading Edge profiles: {e}"")
+    
+    return profiles
+
+class FarmingGUI:
+",""
+"Function:launcher_gui.py:__init__","__init__","launcher_gui.py",49,64,false,"
+class FarmingGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("" MS Rewards Family Farmer"")
+        self.root.geometry(""720x680"")
+        self.root.configure(bg='#1e1e2e')
+        
+        self.is_running = False
+        self.current_thread = None
+        self.idle_monitoring = False
+        self.idle_thread = None
+        
+        self.setup_styles()
+        self.create_widgets()
+        self.refresh_profiles()
+        self.load_config()
+        self.root.protocol(""WM_DELETE_WINDOW"", self.on_close)
+    
+    def setup_styles(self):
+",""
+"Function:launcher_gui.py:setup_styles","setup_styles","launcher_gui.py",66,82,true,"        self.root.protocol(""WM_DELETE_WINDOW"", self.on_close)
+    
+    def setup_styles(self):
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # Dark theme colors
+        bg_color = '#1e1e2e'
+        card_color = '#2a2a3e'
+        accent_color = '#7c3aed'
+        text_color = '#ffffff'
+        
+        style.configure('TFrame', background=bg_color)
+        style.configure('Card.TFrame', background=card_color)
+        style.configure('TLabel', background=bg_color, foreground=text_color, font=('Segoe UI', 10))
+        style.configure('Header.TLabel', background=bg_color, foreground=text_color, font=('Segoe UI', 16, 'bold'))
+        style.configure('TButton', font=('Segoe UI', 10, 'bold'))
+        style.configure('Accent.TButton', background=accent_color, foreground='white')
+        style.configure('TCheckbutton', background=card_color, foreground=text_color)
+    
+    def create_widgets(self):
+",""
+"Function:launcher_gui.py:create_widgets","create_widgets","launcher_gui.py",84,239,true,"        style.configure('TCheckbutton', background=card_color, foreground=text_color)
+    
+    def create_widgets(self):
+        # Header
+        header_frame = ttk.Frame(self.root)
+        header_frame.pack(fill='x', padx=20, pady=15)
+        
+        ttk.Label(header_frame, text="" MS Rewards Family Farmer"", style='Header.TLabel').pack(side='left')
+        
+        # Dashboard button in header
+        self.btn_dashboard = tk.Button(header_frame, text="" Dashboard"", 
+                                       bg='#7c3aed', fg='white', font=('Segoe UI', 9, 'bold'),
+                                       command=self.show_dashboard)
+        self.btn_dashboard.pack(side='right', padx=5)
+        
+        # Profile List Card
+        profile_card = ttk.Frame(self.root, style='Card.TFrame', padding=15)
+        profile_card.pack(fill='x', padx=20, pady=5)
+        
+        ttk.Label(profile_card, text="" Profiles (Tối đa 6)"", style='TLabel').pack(anchor='w')
+        
+        # Profile checkboxes frame
+        self.profile_frame = ttk.Frame(profile_card, style='Card.TFrame')
+        self.profile_frame.pack(fill='x', pady=10)
+        
+        self.profile_vars = {}  # Store checkbox variables
+        
+        # Buttons Row
+        btn_frame = ttk.Frame(profile_card, style='Card.TFrame')
+        btn_frame.pack(fill='x')
+        
+        self.btn_refresh = ttk.Button(btn_frame, text="" Refresh"", command=self.refresh_profiles)
+        self.btn_refresh.pack(side='left', padx=2)
+        
+        self.btn_add = ttk.Button(btn_frame, text=""➕ Add Profile"", command=self.add_profile)
+        self.btn_add.pack(side='left', padx=2)
+        
+        self.btn_select_all = ttk.Button(btn_frame, text=""☑️ Select All"", command=self.select_all)
+        self.btn_select_all.pack(side='left', padx=2)
+        
+        self.btn_reset_today = ttk.Button(btn_frame, text=""️ Reset Today"", command=self.reset_today_history)
+        self.btn_reset_today.pack(side='right', padx=2)
+        
+        # Settings Card
+        settings_card = ttk.Frame(self.root, style='Card.TFrame', padding=15)
+        settings_card.pack(fill='x', padx=20, pady=5)
+        
+        ttk.Label(settings_card, text=""⚙️ Basic Settings"", style='TLabel').pack(anchor='w')
+        
+        settings_inner = ttk.Frame(settings_card, style='Card.TFrame')
+        settings_inner.pack(fill='x', pady=5)
+        
+        # Row 0: Speed & Auto Quota
+        ttk.Label(settings_inner, text=""⚡ Speed:"").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        self.speed_var = tk.StringVar(value="" Auto (Smart)"")
+        speed_combo = ttk.Combobox(settings_inner, textvariable=self.speed_var, width=15, state='readonly',
+                                    values=["" Auto (Smart)"", "" Safe"", "" Medium"", "" Fast"", ""⚡ Turbo""])
+        speed_combo.grid(row=0, column=1, padx=5, pady=5, sticky='w')
+        speed_combo.current(0)
+        
+        self.auto_quota_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(settings_inner, text="" Tự động nhận diện Quota"", 
+                        variable=self.auto_quota_var, style='TCheckbutton').grid(row=0, column=2, padx=15, sticky='w')
+        
+        # Row 1: Debug & Points Today
+        self.debug_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(settings_inner, text="" Chế độ Debug (Hiện Browser)"", 
+                        variable=self.debug_var, style='TCheckbutton').grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky='w')
+                        
+        self.points_today_var = tk.StringVar(value="" Điểm hôm nay: Đang lấy..."")
+        ttk.Label(settings_inner, textvariable=self.points_today_var, foreground=""#facc15"", background=""#2a2a3e"", font=('Segoe UI', 10, 'bold')).grid(row=1, column=2, padx=15, sticky='w')
+        
+        # --- Advanced Settings Toggle ---
+        self.show_adv_var = tk.BooleanVar(value=False)
+        adv_btn = ttk.Checkbutton(settings_card, text=""▼ Advanced Settings (Thủ công, Lịch, Bot)"", 
+                                  variable=self.show_adv_var, style='TCheckbutton',
+                                  command=self.toggle_advanced)
+        adv_btn.pack(anchor='w', pady=(10, 0))
+        
+        self.adv_frame = ttk.Frame(settings_card, style='Card.TFrame')
+        # We will pack/unpack this in toggle_advanced
+        
+        # Manual Overrides
+        ttk.Label(self.adv_frame, text=""Manual PC:"").grid(row=0, column=0, padx=5, pady=2)
+        self.pc_var = tk.StringVar(value=""30"")
+        ttk.Entry(self.adv_frame, textvariable=self.pc_var, width=5).grid(row=0, column=1, padx=5)
+        
+        ttk.Label(self.adv_frame, text=""Mobile:"").grid(row=0, column=2, padx=5, pady=2)
+        self.mobile_var = tk.StringVar(value=""20"")
+        ttk.Entry(self.adv_frame, textvariable=self.mobile_var, width=5).grid(row=0, column=3, padx=5)
+        
+        ttk.Label(self.adv_frame, text=""Delay(phút):"").grid(row=0, column=
+... [truncated]",""
+"Function:launcher_gui.py:toggle_advanced","toggle_advanced","launcher_gui.py",241,246,true,"        self.log_text.pack(fill='both', expand=True)
+
+    def toggle_advanced(self):
+        """"""Show or hide advanced settings frame.""""""
+        if self.show_adv_var.get():
+            self.adv_frame.pack(fill='x', pady=5)
+        else:
+            self.adv_frame.pack_forget()
+
+    
+",""
+"Function:launcher_gui.py:reset_today_history","reset_today_history","launcher_gui.py",249,277,true,"
+    
+    def reset_today_history(self):
+        """"""Reset today's farming history so profiles can be farmed again.""""""
+        if not messagebox.askyesno(""Reset Today"", ""Bạn có chắc chắn muốn xóa lịch sử farm ngày hôm nay?\n(Các profile sẽ có thể farm lại)""):
+            return
+            
+        import json
+        from datetime import datetime
+        history_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ""points_history.json"")
+        today = datetime.now().strftime(""%Y-%m-%d"")
+        
+        try:
+            if os.path.exists(history_file):
+                with open(history_file, ""r"", encoding=""utf-8"") as f:
+                    data = json.load(f)
+                    
+                before = len(data.get(""records"", []))
+                data[""records""] = [r for r in data.get(""records"", []) if r.get(""date"") != today]
+                after = len(data[""records""])
+                
+                with open(history_file, ""w"", encoding=""utf-8"") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                    
+                self.log(f""️ Reset history hôm nay: Đã xóa {before - after} records."")
+                messagebox.showinfo(""Reset Today"", f""Đã xóa {before - after} records của ngày hôm nay.\nBạn có thể Start Farming lại!"")
+            else:
+                messagebox.showinfo(""Reset Today"", ""Không tìm thấy file lịch sử (chưa có dữ liệu)."")
+        except Exception as e:
+            self.log(f""❌ Lỗi khi reset history: {e}"")
+            messagebox.showerror(""Lỗi"", f""Không thể reset history: {e}"")
+
+    
+",""
+"Function:launcher_gui.py:refresh_profiles","refresh_profiles","launcher_gui.py",280,302,true,"
+    
+    def refresh_profiles(self):
+        """"""Refresh profile list from Edge browser.""""""
+        # Clear existing checkboxes
+        for widget in self.profile_frame.winfo_children():
+            widget.destroy()
+        self.profile_vars.clear()
+        self.profile_paths = {}  # Store profile folder -> path mapping
+        
+        # Get Edge profiles
+        edge_profiles = get_edge_profiles()
+        
+        if not edge_profiles:
+            ttk.Label(self.profile_frame, text=""(Không tìm thấy Edge profiles)"").pack()
+        else:
+            for i, profile in enumerate(edge_profiles[:MAX_PROFILES]):
+                var = tk.BooleanVar(value=True)
+                display_text = f""{profile['name']} ({profile['folder']})""
+                self.profile_vars[profile['folder']] = var
+                self.profile_paths[profile['folder']] = profile['path']
+                cb = ttk.Checkbutton(self.profile_frame, text=display_text, variable=var, style='TCheckbutton')
+                cb.grid(row=i//3, column=i%3, sticky='w', padx=10, pady=2)
+        
+        self.log(f""Found {len(edge_profiles)} Edge profiles"")
+    
+    def select_all(self):
+",""
+"Function:launcher_gui.py:select_all","select_all","launcher_gui.py",304,308,true,"        self.log(f""Found {len(edge_profiles)} Edge profiles"")
+    
+    def select_all(self):
+        """"""Select/deselect all profiles.""""""
+        all_selected = all(v.get() for v in self.profile_vars.values())
+        for var in self.profile_vars.values():
+            var.set(not all_selected)
+    
+    def add_profile(self):
+",""
+"Function:launcher_gui.py:add_profile","add_profile","launcher_gui.py",310,336,true,"            var.set(not all_selected)
+    
+    def add_profile(self):
+        """"""Open dialog to add new profile.""""""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(""Add Profile"")
+        dialog.geometry(""300x120"")
+        dialog.configure(bg='#1e1e2e')
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text=""Profile Name (e.g., Dad, Mom):"").pack(pady=10)
+        
+        name_var = tk.StringVar()
+        entry = ttk.Entry(dialog, textvariable=name_var, width=25)
+        entry.pack(pady=5)
+        entry.focus()
+        
+        def confirm():
+            name = name_var.get().strip()
+            if name:
+                profile_path = os.path.join(PROFILES_DIR, name)
+                os.makedirs(profile_path, exist_ok=True)
+                self.log(f""Created profile folder: {name}"")
+                self.log(f""⚠️ Remember to run setup: python multi_profile_launcher.py --setup {name}"")
+                dialog.destroy()
+                self.refresh_profiles()
+        
+        ttk.Button(dialog, text=""Create"", command=confirm).pack(pady=10)
+    
+    def log(self, message):
+",""
+"Function:launcher_gui.py:confirm","confirm","launcher_gui.py",326,334,true,"        entry.focus()
+        
+        def confirm():
+            name = name_var.get().strip()
+            if name:
+                profile_path = os.path.join(PROFILES_DIR, name)
+                os.makedirs(profile_path, exist_ok=True)
+                self.log(f""Created profile folder: {name}"")
+                self.log(f""⚠️ Remember to run setup: python multi_profile_launcher.py --setup {name}"")
+                dialog.destroy()
+                self.refresh_profiles()
+        
+        ttk.Button(dialog, text=""Create"", command=confirm).pack(pady=10)
+",""
+"Function:launcher_gui.py:log","log","launcher_gui.py",338,353,true,"        ttk.Button(dialog, text=""Create"", command=confirm).pack(pady=10)
+    
+    def log(self, message):
+        """"""Add message to log display and write to file.""""""
+        timestamp = datetime.now().strftime(""%H:%M:%S"")
+        self.log_text.insert('end', f""[{timestamp}] {message}\n"")
+        self.log_text.see('end')
+        self.root.update_idletasks()
+        
+        # Also write to file for debugging
+        try:
+            log_dir = os.path.join(os.path.dirname(__file__), ""logs"")
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = os.path.join(log_dir, f""gui_farm_{datetime.now().strftime('%Y%m%d')}.log"")
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f""[{timestamp}] {message}\n"")
+        except:
+            pass
+    
+    def start_farming(self):
+",""
+"Function:launcher_gui.py:start_farming","start_farming","launcher_gui.py",355,370,true,"            pass
+    
+    def start_farming(self):
+        """"""Start farming selected profiles.""""""
+        selected = [p for p, v in self.profile_vars.items() if v.get()]
+        
+        if not selected:
+            messagebox.showwarning(""Warning"", ""Please select at least one profile!"")
+            return
+        
+        self.is_running = True
+        self.btn_start.config(state='disabled')
+        self.btn_stop.config(state='normal')
+        self.status_var.set(f""Running: 0/{len(selected)} profiles"")
+        
+        # Run in background thread
+        self.current_thread = threading.Thread(target=self.farming_worker, args=(selected,), daemon=True)
+        self.current_thread.start()
+    
+    def farming_worker(self, profiles):
+",""
+"Function:launcher_gui.py:farming_worker","farming_worker","launcher_gui.py",372,1015,true,"        self.current_thread.start()
+    
+    def farming_worker(self, profiles):
+        """"""Background worker for farming with smart limit detection.""""""
+        import time
+        import random
+        
+        try:
+            from farm import (
+                setup_driver, safe_driver_quit, is_driver_alive, get_current_points,
+                get_points_from_search_page,
+                complete_daily_set_and_activities, query_gen,
+                simulate_typing, human_scroll, interact_with_results, random_sleep,
+                setup_logging, check_and_recover_oom,
+                EarlyStopDetector, adaptive_batch, auto_speed_config, log_quota_confidence
+            )
+            from farm.points import check_logged_in, get_search_quota
+            from farm.history import was_farmed_today
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.common.keys import Keys
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            
+            # Setup unified logging: farm_rewards logs → GUI panel + file
+            import logging as _logging
+            setup_logging()
+            
+            class GUILogHandler(_logging.Handler):
+                def __init__(self, gui):
+                    super().__init__()
+                    self.gui = gui
+                def emit(self, record):
+                    msg = record.getMessage()
+                    # Only forward important messages, skip verbose ones
+                    if any(k in msg for k in ['CLONE', 'POINTS', 'Search', 'search', 'Activity', 'Quiz', 'HOÀN', 'ĐẠT GIỚI HẠN', 'ERROR', 'WARNING', 'Driver', 'khởi tạo']):
+                        try:
+                            self.gui.root.after(0, lambda m=msg: self.gui.log(f"" {m}""))
+                        except:
+                            pass
+            
+            gui_handler = GUILogHandler(self)
+            gui_handler.setLevel(_logging.INFO)
+            # Prevent duplicate GUI handlers on repeated farming runs
+            root_logger = _logging.getLogger()
+            for h in root_logger.handlers[:]:
+                if type(h).__name__ == 'GUILogHandler':
+                    root_logger.removeHandler(h)
+            root_logger.addHandler(gui_handler)
+        except ImportError as e:
+            self.log(f""❌ Error importing: {e}"")
+            self.reset_ui()
+            return
+        
+        def detailed_search(driver, count, mode, log_func, check_running, speed_config, successful_batches=0):
+            """"""Perform searches with adaptive delay and detailed logging.""""""
+            base_url = ""https://www.bing.com/""
+            wait_min, wait_max = speed_config['wait']
+            post_min, post_max = speed_config['post']
+            
+            # Adaptive delay: speed up after consecutive successful batches
+            if successful_batches >= 3:
+                speed_factor = 0.6  # 40% faster after 3 successful batches
+                log_func(f""  ⚡ Adaptive: speed boost active (3+ successful batches)"")
+            elif successful_batches >= 1:
+                speed_factor = 0.8  # 20% faster after 1 successful batch
+            else:
+                speed_factor = 1.0  # Normal speed for first batch
+            
+            log_func(f""  → Navigating to Bing..."")
+            try:
+                driver.get(base_url)
+                time.sleep(random.uniform(2, 4))
+                check_and_recover_oom(driver, f""{mode} initial nav"")
+            except Exception as e:
+                log_func(f""  ❌ Cannot access Bing: {e}"")
+                return
+            
+            for i in range(count):
+                if not check_running():
+                    log_func(f""  ⏹️ Stopped"")
+                    return
+                
+                try:
+                    query = query_gen.generate()
+                    log_func(f""   [{mode}] {i+1}/{count}: \""{query[:25]}...\"""")
+                    
+                    # Find search box
+                    try:
+                        search_box = WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.NAME, ""q""))
+                        )
+                    except:
+                        log_func(f""     ↻ Reloading Bing..."")
+                        try:
+                            driver.get(base_url)
+                            time.sleep(2)
+                            check_and_recover_oom(driver, f""{mode} reload"")
+                            search_box = WebDriverWait(driver, 10).until(
+                                EC.presence_of_element_located((By.NAME, ""q""))
+                            )
+                        except Exception as reload_err:
+                            err_msg2 = str(reload_err).lower()
+                            if any(k in err_msg2 for k in [""ht
+... [truncated]",""
+"Function:launcher_gui.py:emit","emit","launcher_gui.py",401,408,true,"                    super().__init__()
+                    self.gui = gui
+                def emit(self, record):
+                    msg = record.getMessage()
+                    # Only forward important messages, skip verbose ones
+                    if any(k in msg for k in ['CLONE', 'POINTS', 'Search', 'search', 'Activity', 'Quiz', 'HOÀN', 'ĐẠT GIỚI HẠN', 'ERROR', 'WARNING', 'Driver', 'khởi tạo']):
+                        try:
+                            self.gui.root.after(0, lambda m=msg: self.gui.log(f"" {m}""))
+                        except:
+                            pass
+            
+            gui_handler = GUILogHandler(self)
+",""
+"Function:launcher_gui.py:detailed_search","detailed_search","launcher_gui.py",423,524,true,"            return
+        
+        def detailed_search(driver, count, mode, log_func, check_running, speed_config, successful_batches=0):
+            """"""Perform searches with adaptive delay and detailed logging.""""""
+            base_url = ""https://www.bing.com/""
+            wait_min, wait_max = speed_config['wait']
+            post_min, post_max = speed_config['post']
+            
+            # Adaptive delay: speed up after consecutive successful batches
+            if successful_batches >= 3:
+                speed_factor = 0.6  # 40% faster after 3 successful batches
+                log_func(f""  ⚡ Adaptive: speed boost active (3+ successful batches)"")
+            elif successful_batches >= 1:
+                speed_factor = 0.8  # 20% faster after 1 successful batch
+            else:
+                speed_factor = 1.0  # Normal speed for first batch
+            
+            log_func(f""  → Navigating to Bing..."")
+            try:
+                driver.get(base_url)
+                time.sleep(random.uniform(2, 4))
+                check_and_recover_oom(driver, f""{mode} initial nav"")
+            except Exception as e:
+                log_func(f""  ❌ Cannot access Bing: {e}"")
+                return
+            
+            for i in range(count):
+                if not check_running():
+                    log_func(f""  ⏹️ Stopped"")
+                    return
+                
+                try:
+                    query = query_gen.generate()
+                    log_func(f""   [{mode}] {i+1}/{count}: \""{query[:25]}...\"""")
+                    
+                    # Find search box
+                    try:
+                        search_box = WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.NAME, ""q""))
+                        )
+                    except:
+                        log_func(f""     ↻ Reloading Bing..."")
+                        try:
+                            driver.get(base_url)
+                            time.sleep(2)
+                            check_and_recover_oom(driver, f""{mode} reload"")
+                            search_box = WebDriverWait(driver, 10).until(
+                                EC.presence_of_element_located((By.NAME, ""q""))
+                            )
+                        except Exception as reload_err:
+                            err_msg2 = str(reload_err).lower()
+                            if any(k in err_msg2 for k in [""httpconnectionpool"", ""connectionpool"", ""target closed"", ""timed out""]):
+                                log_func(f""  ❌ Driver died during reload!"")
+                                return
+                            raise
+                    
+                    # Type and search
+                    search_box.click()
+                    time.sleep(random.uniform(0.3, 0.6))
+                    search_box.clear()
+                    simulate_typing(search_box, query)
+                    time.sleep(random.uniform(0.3, 0.6))
+                    search_box.send_keys(Keys.RETURN)
+                    
+                    # Adaptive wait: scale by speed factor
+                    wait_time = max(2, int(random.randint(wait_min, wait_max) * speed_factor))
+                    log_func(f""     ⏳ Waiting {wait_time}s..."")
+                    time.sleep(wait_time)
+                    
+                    # Check for error page after search
+                    check_and_recover_oom(driver, f""{mode} search {i+1}"")
+                    
+                    # Scroll and interact
+                    human_scroll(driver)
+                    interact_with_results(driver)
+                    post_time = max(1, random.uniform(post_min, post_max) * speed_factor)
+                    time.sleep(post_time)
+                    
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    # Fatal driver errors - signal to restart driver
+                    fatal_keywords = [""refused"", ""disconnected"", ""httpconnectionpool"",
+                                      ""connectionpool"", ""max retries"", ""target closed"",
+                                      ""session not created"", ""no such window""]
+                    if any(k in err_msg for k in fatal_keywords):
+                        log_func(f""  ❌ Driver connection lost! (will retry with new driver)"")
+                        return  # Return to caller which should restart driver
+                    
+                    log_func(f""  ⚠️ Error on search {i+1}: {str(e)[:40]}"")
+                    error_retries = getattr(detailed_search, '_retries', 0)
+                    error_retries += 1
+                    detailed_search._retries = error_retries
+                    
+                    if error_retries >= 3:
+                        log_func(f""  ❌ Too many errors ({error_retries}x). Stopping."")
+                        detailed_search._retries = 0
+                
+... [truncated]",""
+"Function:launcher_gui.py:update_points_ui","update_points_ui","launcher_gui.py",550,556,true,"        from farm.history import get_today_stats
+        
+        def update_points_ui():
+            try:
+                stats = get_today_stats()
+                total = sum(s.get(""earned"", 0) for s in stats.values())
+                self.root.after(0, lambda: self.points_today_var.set(f"" Điểm hôm nay: +{total} pts""))
+            except Exception as e:
+                self.log(f""⚠️ Không thể lấy điểm hôm nay: {e}"")
+        
+        update_points_ui()
+",""
+"Function:launcher_gui.py:stop_farming","stop_farming","launcher_gui.py",1017,1021,true,"        self.reset_ui()
+    
+    def stop_farming(self):
+        """"""Stop farming process.""""""
+        self.is_running = False
+        self.status_var.set(""Stopping..."")
+        self.log(""⏹️ Stopping..."")
+    
+    def reset_ui(self):
+",""
+"Function:launcher_gui.py:reset_ui","reset_ui","launcher_gui.py",1023,1028,true,"        self.log(""⏹️ Stopping..."")
+    
+    def reset_ui(self):
+        """"""Reset UI after farming completes.""""""
+        self.is_running = False
+        self.btn_start.config(state='normal')
+        self.btn_stop.config(state='disabled')
+        self.status_var.set(""Ready"")
+    
+    # ===== CONFIG MANAGEMENT =====
+",""
+"Function:launcher_gui.py:load_config","load_config","launcher_gui.py",1031,1054,true,"    
+    # ===== CONFIG MANAGEMENT =====
+    def load_config(self):
+        """"""Load settings from config.json.""""""
+        import json
+        try:
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                self.pc_var.set(cfg.get('pc_searches', '30'))
+                self.mobile_var.set(cfg.get('mobile_searches', '20'))
+                self.delay_var.set(cfg.get('delay_minutes', '5'))
+                self.speed_var.set(cfg.get('speed_mode', 'Medium'))
+                self.debug_var.set(cfg.get('debug_mode', False))
+                self.idle_time_var.set(cfg.get('idle_minutes', '5'))
+                self.schedule_var.set(cfg.get('schedule_enabled', False))
+                self.schedule_hour_var.set(cfg.get('schedule_hour', '02'))
+                self.schedule_min_var.set(cfg.get('schedule_min', '00'))
+                self.tg_token_var.set(cfg.get('telegram_token', ''))
+                self.tg_chat_var.set(cfg.get('telegram_chat_id', ''))
+                self.log(""⚙️ Config loaded from config.json"")
+                # Auto-start scheduler if was enabled
+                if cfg.get('schedule_enabled', False):
+                    self.root.after(1000, self.toggle_scheduler)
+        except Exception as e:
+            self.log(f""⚠️ Config load error: {e}"")
+    
+    def save_config(self):
+",""
+"Function:launcher_gui.py:save_config","save_config","launcher_gui.py",1056,1077,true,"            self.log(f""⚠️ Config load error: {e}"")
+    
+    def save_config(self):
+        """"""Save current settings to config.json.""""""
+        import json
+        try:
+            cfg = {
+                'pc_searches': self.pc_var.get(),
+                'mobile_searches': self.mobile_var.get(),
+                'delay_minutes': self.delay_var.get(),
+                'speed_mode': self.speed_var.get(),
+                'debug_mode': self.debug_var.get(),
+                'idle_auto_farm': self.idle_var.get(),
+                'idle_minutes': self.idle_time_var.get(),
+                'schedule_enabled': self.schedule_var.get(),
+                'schedule_hour': self.schedule_hour_var.get(),
+                'schedule_min': self.schedule_min_var.get(),
+                'telegram_token': self.tg_token_var.get(),
+                'telegram_chat_id': self.tg_chat_var.get()
+            }
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            self.log(f""⚠️ Config save error: {e}"")
+    
+    def on_close(self):
+",""
+"Function:launcher_gui.py:on_close","on_close","launcher_gui.py",1079,1083,true,"            self.log(f""⚠️ Config save error: {e}"")
+    
+    def on_close(self):
+        """"""Save config and close window.""""""
+        self.save_config()
+        self.idle_monitoring = False
+        self.root.destroy()
+    
+    # ===== IDLE DETECTION =====
+",""
+"Function:launcher_gui.py:get_idle_seconds","get_idle_seconds","launcher_gui.py",1086,1094,true,"    
+    # ===== IDLE DETECTION =====
+    def get_idle_seconds(self):
+        """"""Get seconds since last user input (mouse/keyboard).""""""
+        class LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [(""cbSize"", ctypes.c_uint), (""dwTime"", ctypes.c_uint)]
+        lii = LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+        ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii))
+        millis = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
+        return millis / 1000.0
+    
+    def _get_free_ram_mb(self):
+",""
+"Function:launcher_gui.py:_get_free_ram_mb","_get_free_ram_mb","launcher_gui.py",1096,1117,false,"        return millis / 1000.0
+    
+    def _get_free_ram_mb(self):
+        """"""Get available free RAM in megabytes using Windows API.""""""
+        try:
+            import ctypes
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    (""dwLength"", ctypes.c_ulong),
+                    (""dwMemoryLoad"", ctypes.c_ulong),
+                    (""ullTotalPhys"", ctypes.c_ulonglong),
+                    (""ullAvailPhys"", ctypes.c_ulonglong),
+                    (""ullTotalPageFile"", ctypes.c_ulonglong),
+                    (""ullAvailPageFile"", ctypes.c_ulonglong),
+                    (""ullTotalVirtual"", ctypes.c_ulonglong),
+                    (""ullAvailVirtual"", ctypes.c_ulonglong),
+                    (""ullAvailExtendedVirtual"", ctypes.c_ulonglong),
+                ]
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(stat)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+            return int(stat.ullAvailPhys / (1024 * 1024))
+        except:
+            return 9999  # If can't check, assume enough RAM
+    
+    def toggle_idle_monitor(self):
+",""
+"Function:launcher_gui.py:toggle_idle_monitor","toggle_idle_monitor","launcher_gui.py",1119,1130,true,"            return 9999  # If can't check, assume enough RAM
+    
+    def toggle_idle_monitor(self):
+        """"""Start/stop idle monitoring.""""""
+        if self.idle_var.get():
+            self.idle_monitoring = True
+            self.idle_status.config(text=""(Đang theo dõi...)"")
+            self.log("" Auto-Farm: BẬT - Sẽ tự farm khi không dùng máy"")
+            self.idle_thread = threading.Thread(target=self.idle_monitor_loop, daemon=True)
+            self.idle_thread.start()
+        else:
+            self.idle_monitoring = False
+            self.idle_status.config(text="""")
+            self.log("" Auto-Farm: TẮT"")
+    
+    def idle_monitor_loop(self):
+",""
+"Function:launcher_gui.py:idle_monitor_loop","idle_monitor_loop","launcher_gui.py",1132,1186,true,"            self.log("" Auto-Farm: TẮT"")
+    
+    def idle_monitor_loop(self):
+        """"""Background loop checking for user inactivity.""""""
+        import time
+        while self.idle_monitoring:
+            try:
+                idle_threshold = int(self.idle_time_var.get()) * 60  # Convert to seconds
+            except:
+                idle_threshold = 300  # Default 5 minutes
+            
+            idle_secs = self.get_idle_seconds()
+            idle_mins = int(idle_secs // 60)
+            
+            # Update status
+            if not self.is_running:
+                self.root.after(0, lambda m=idle_mins: self.idle_status.config(
+                    text=f""(Rảnh {m} phút)""))
+            
+            # Auto-start if idle enough and not already running
+            if idle_secs >= idle_threshold and not self.is_running:
+                # Check if all profiles already farmed today
+                try:
+                    from farm.history import was_farmed_today
+                    profiles = [name for name, var in self.profile_vars.items() if var.get()]
+                    all_farmed = all(was_farmed_today(p) for p in profiles) if profiles else False
+                    if all_farmed:
+                        self.root.after(0, lambda: self.idle_status.config(text=""(Đã farm xong hôm nay)""))
+                        time.sleep(1800)  # Wait 30 min, check again (next day)
+                        continue
+                except:
+                    pass
+                
+                # Check RAM before starting
+                free_ram_mb = self._get_free_ram_mb()
+                MIN_RAM_MB = 500  # Need at least 500MB free
+                
+                if free_ram_mb < MIN_RAM_MB:
+                    self.root.after(0, lambda r=free_ram_mb: self.log(
+                        f""⚠️ RAM không đủ ({r}MB free, cần {MIN_RAM_MB}MB). Chờ thêm...""))
+                    time.sleep(120)  # Wait 2 min before re-checking
+                    continue
+                
+                self.root.after(0, lambda m=idle_mins, r=free_ram_mb: self.log(
+                    f"" Rảnh {m} phút, RAM: {r}MB free → Tự động farm!""))
+                self.root.after(0, self.start_farming)
+                
+                # Wait for farming to finish
+                while self.is_running and self.idle_monitoring:
+                    time.sleep(5)
+                
+                # After farming done, wait longer before checking again
+                if self.idle_monitoring:
+                    self.root.after(0, lambda: self.idle_status.config(text=""(Chờ idle tiếp...)""))
+                    time.sleep(300)  # Wait 5 min before re-checking (not 1 min)
+            else:
+                time.sleep(30)  # Check every 30 seconds
+    
+    # ===== DASHBOARD =====
+",""
+"Function:launcher_gui.py:show_dashboard","show_dashboard","launcher_gui.py",1189,1286,true,"    
+    # ===== DASHBOARD =====
+    def show_dashboard(self):
+        """"""Open Dashboard popup showing points history.""""""
+        try:
+            from farm.history import get_today_stats, get_weekly_total, get_daily_totals, get_streak_days
+        except ImportError:
+            messagebox.showinfo(""Dashboard"", ""Chưa có dữ liệu. Hãy chạy farm ít nhất 1 lần."")
+            return
+        
+        dash = tk.Toplevel(self.root)
+        dash.title("" MS Rewards Dashboard"")
+        dash.geometry(""520x480"")
+        dash.configure(bg='#1e1e2e')
+        dash.transient(self.root)
+        
+        # Header
+        tk.Label(dash, text="" Points Dashboard"", font=('Segoe UI', 16, 'bold'),
+                 bg='#1e1e2e', fg='white').pack(pady=10)
+        
+        # Today Stats
+        today_frame = tk.Frame(dash, bg='#2a2a3e', padx=15, pady=10)
+        today_frame.pack(fill='x', padx=15, pady=5)
+        
+        tk.Label(today_frame, text=f"" Hôm nay ({datetime.now().strftime('%d/%m/%Y')})"",
+                 font=('Segoe UI', 12, 'bold'), bg='#2a2a3e', fg='#7c3aed').pack(anchor='w')
+        
+        today = get_today_stats()
+        if today:
+            total_earned = 0
+            for profile, stats in today.items():
+                earned = stats['earned']
+                total_earned += earned
+                pts = stats['last_points']
+                tk.Label(today_frame, text=f""   {profile}: +{earned} pts  (✅ {pts} total)"",
+                         font=('Consolas', 10), bg='#2a2a3e', fg='#22c55e').pack(anchor='w')
+            tk.Label(today_frame, text=f""  ∑ Tổng hôm nay: +{total_earned}"",
+                     font=('Segoe UI', 11, 'bold'), bg='#2a2a3e', fg='#facc15').pack(anchor='w', pady=(5,0))
+        else:
+            tk.Label(today_frame, text=""  Chưa farm hôm nay"", font=('Segoe UI', 10), bg='#2a2a3e', fg='#888').pack(anchor='w')
+        
+        # Streak
+        try:
+            streak = get_streak_days()
+            if streak > 0:
+                tk.Label(today_frame, text=f""   Streak: {streak} ngày liên tiếp"",
+                         font=('Segoe UI', 10, 'bold'), bg='#2a2a3e', fg='#f97316').pack(anchor='w', pady=(3,0))
+        except:
+            pass
+        
+        # Weekly Summary
+        weekly_total = get_weekly_total()
+        weekly_frame = tk.Frame(dash, bg='#2a2a3e', padx=15, pady=10)
+        weekly_frame.pack(fill='x', padx=15, pady=5)
+        tk.Label(weekly_frame, text=f"" 7 ngày qua: +{weekly_total} pts"",
+                 font=('Segoe UI', 12, 'bold'), bg='#2a2a3e', fg='#38bdf8').pack(anchor='w')
+        
+        # 14-day Chart
+        chart_frame = tk.Frame(dash, bg='#2a2a3e', padx=15, pady=10)
+        chart_frame.pack(fill='both', expand=True, padx=15, pady=5)
+        tk.Label(chart_frame, text="" 14 ngày gần nhất"",
+                 font=('Segoe UI', 11, 'bold'), bg='#2a2a3e', fg='white').pack(anchor='w')
+        
+        daily = get_daily_totals(14)
+        max_pts = max((pts for _, pts in daily), default=1) or 1
+        
+        chart_canvas = tk.Canvas(chart_frame, bg='#0d0d14', height=200, highlightthickness=0)
+        chart_canvas.pack(fill='x', pady=5)
+        
+        def draw_chart(event=None):
+            chart_canvas.delete('all')
+            w = chart_canvas.winfo_width()
+            h = chart_canvas.winfo_height()
+            if w < 50: return
+            
+            bar_w = max(10, (w - 60) // len(daily))
+            x_start = 45
+            
+            for i, (date, pts) in enumerate(daily):
+                bar_h = int((pts / max_pts) * (h - 40)) if pts > 0 else 2
+                x = x_start + i * bar_w
+                y = h - 25
+                
+                color = '#7c3aed' if pts > 0 else '#333'
+                chart_canvas.create_rectangle(x, y - bar_h, x + bar_w - 2, y, fill=color, outline='')
+                
+                if i % 2 == 0:
+                    day_label = date[5:]  # MM-DD
+                    chart_canvas.create_text(x + bar_w//2, y + 10, text=day_label,
+                                            fill='#888', font=('Consolas', 7))
+                
+                if pts > 0:
+                    chart_canvas.create_text(x + bar_w//2, y - bar_h - 8, text=str(pts),
+                                            fill='#7c3aed', font=('Consolas', 7))
+        
+        chart_canvas.bind('<Configure>', draw_chart)
+        
+        # Close button
+        tk.Button(dash, text=""✖ Đóng"", bg='#ef4444', fg='white', font=('Segoe UI', 10, 'bold'),
+                  command=dash.destroy).pack(pady=10)
+    
+    # ===== SCHEDULER =====
+",""
+"Function:launcher_gui.py:draw_chart","draw_chart","launcher_gui.py",1256,1280,true,"        chart_canvas.pack(fill='x', pady=5)
+        
+        def draw_chart(event=None):
+            chart_canvas.delete('all')
+            w = chart_canvas.winfo_width()
+            h = chart_canvas.winfo_height()
+            if w < 50: return
+            
+            bar_w = max(10, (w - 60) // len(daily))
+            x_start = 45
+            
+            for i, (date, pts) in enumerate(daily):
+                bar_h = int((pts / max_pts) * (h - 40)) if pts > 0 else 2
+                x = x_start + i * bar_w
+                y = h - 25
+                
+                color = '#7c3aed' if pts > 0 else '#333'
+                chart_canvas.create_rectangle(x, y - bar_h, x + bar_w - 2, y, fill=color, outline='')
+                
+                if i % 2 == 0:
+                    day_label = date[5:]  # MM-DD
+                    chart_canvas.create_text(x + bar_w//2, y + 10, text=day_label,
+                                            fill='#888', font=('Consolas', 7))
+                
+                if pts > 0:
+                    chart_canvas.create_text(x + bar_w//2, y - bar_h - 8, text=str(pts),
+                                            fill='#7c3aed', font=('Consolas', 7))
+        
+        chart_canvas.bind('<Configure>', draw_chart)
+",""
+"Function:launcher_gui.py:toggle_scheduler","toggle_scheduler","launcher_gui.py",1289,1300,true,"    
+    # ===== SCHEDULER =====
+    def toggle_scheduler(self):
+        """"""Start/stop daily scheduler.""""""
+        if self.schedule_var.get():
+            self.scheduler_running = True
+            hour = self.schedule_hour_var.get()
+            minute = self.schedule_min_var.get()
+            self.log(f"" Scheduler BẬt: Mỗi ngày lúc {hour}:{minute}"")
+            self.scheduler_thread = threading.Thread(target=self.scheduler_loop, daemon=True)
+            self.scheduler_thread.start()
+        else:
+            self.scheduler_running = False
+            self.log("" Scheduler Tắt"")
+    
+    def scheduler_loop(self):
+",""
+"Function:launcher_gui.py:scheduler_loop","scheduler_loop","launcher_gui.py",1302,1327,true,"            self.log("" Scheduler Tắt"")
+    
+    def scheduler_loop(self):
+        """"""Background thread that triggers farming at scheduled time.""""""
+        import time
+        last_farm_date = None
+        
+        while getattr(self, 'scheduler_running', False):
+            try:
+                now = datetime.now()
+                target_h = int(self.schedule_hour_var.get())
+                target_m = int(self.schedule_min_var.get())
+                
+                if (now.hour == target_h and now.minute == target_m 
+                    and not self.is_running 
+                    and last_farm_date != now.strftime('%Y-%m-%d')):
+                    
+                    last_farm_date = now.strftime('%Y-%m-%d')
+                    self.root.after(0, lambda: self.log(f"" Scheduled farm triggered at {now.strftime('%H:%M')}!""))
+                    self.root.after(0, self.start_farming)
+                    
+                    # Wait for farming to finish
+                    while self.is_running and getattr(self, 'scheduler_running', False):
+                        time.sleep(5)
+                
+                time.sleep(30)  # Check every 30 seconds
+            except:
+                time.sleep(60)
+    
+    # ===== TELEGRAM =====
+",""
+"Function:launcher_gui.py:send_telegram_notification","send_telegram_notification","launcher_gui.py",1330,1372,true,"    
+    # ===== TELEGRAM =====
+    def send_telegram_notification(self):
+        """"""Send farm completion notification via Telegram.""""""
+        token = self.tg_token_var.get().strip()
+        chat_id = self.tg_chat_var.get().strip()
+        
+        if not token or not chat_id:
+            return  # No telegram config, skip silently
+        
+        try:
+            from farm.history import get_today_stats, get_streak_days, get_weekly_total
+            today = get_today_stats()
+            
+            lines = ["" MS Rewards Farm Complete!""]
+            lines.append(f"" {datetime.now().strftime('%d/%m/%Y %H:%M')}"")
+            lines.append("""")
+            
+            total = 0
+            for profile, stats in today.items():
+                earned = stats['earned']
+                total += earned
+                lines.append(f"" {profile}: +{earned} pts ({stats['last_points']} total)"")
+            
+            lines.append(f""\n∑ Tổng hôm nay: +{total} pts"")
+            try:
+                streak = get_streak_days()
+                weekly = get_weekly_total()
+                if streak > 0:
+                    lines.append(f"" Streak: {streak} ngày"")
+                lines.append(f"" Tuần này: +{weekly} pts"")
+            except:
+                pass
+            message = ""\n"".join(lines)
+            
+            import urllib.request
+            import urllib.parse
+            url = f""https://api.telegram.org/bot{token}/sendMessage""
+            data = urllib.parse.urlencode({'chat_id': chat_id, 'text': message}).encode()
+            req = urllib.request.Request(url, data=data)
+            urllib.request.urlopen(req, timeout=10)
+            
+            self.log("" Telegram notification sent!"")
+        except Exception as e:
+            self.log(f""⚠️ Telegram error: {e}"")
+
+def main():
+",""
+"Function:launcher_gui.py:main","main","launcher_gui.py",1374,1377,true,"            self.log(f""⚠️ Telegram error: {e}"")
+
+def main():
+    root = tk.Tk()
+    app = FarmingGUI(root)
+    root.mainloop()
+
+if __name__ == ""__main__"":
+",""
+"Function:farm_rewards.py:run_single_profile","run_single_profile","farm_rewards.py",25,93,true,"
+
+def run_single_profile(profile_name, profile_path, headless=True, pc_count=PC_SEARCH_COUNT, mobile_count=MOBILE_SEARCH_COUNT):
+    from farm.utils import random_sleep, take_screenshot
+    
+    threading.current_thread().name = profile_name
+    logging.info(f""--- BẮT ĐẦU XỬ LÝ: {profile_name} (Headless: {headless}) ---"")
+    
+    driver = setup_driver(profile_path, is_mobile=False, headless=headless)
+    
+    if not driver:
+        logging.error(f""[{profile_name}] Không thể khởi tạo driver."")
+        return
+    
+    try:
+        driver.get(""https://rewards.bing.com/"")
+        random_sleep(5, 8)
+        
+        if ""login"" in driver.current_url.lower() or ""signin"" in driver.current_url.lower():
+            logging.warning(f""[{profile_name}] Chưa login!"")
+            if headless:
+                logging.error(f""[{profile_name}] Headless nên không thể login. Chạy --visible để đăng nhập!"")
+                driver.quit()
+                return
+            else:
+                input("">>> Nhấn ENTER sau khi đã đăng nhập xong..."")
+        else:
+            logging.info(""-> Trạng thái: ĐÃ LOGIN. Chiến thôi!"")
+        
+        points = get_current_points(driver)
+        logging.info(f""Điểm hiện tại: {points}"")
+        
+        complete_daily_set_and_activities(driver)
+        complete_daily_set_and_activities(driver)
+        driver = farm_parallel(driver, profile_path=profile_path, pc_count=pc_count)
+        
+        # === MOBILE FARMING ===
+        if driver:
+            try: driver.quit()
+            except: pass
+            
+        logging.info(""--- CHUYỂN SANG MOBILE MODE ---"")
+        driver = setup_driver(profile_path, is_mobile=True, headless=headless)
+        
+        if driver:
+            try:
+                driver.get(""https://rewards.bing.com/"")
+                random_sleep(3, 5)
+                
+                logging.info(f""- [MOBILE_MODE] Thực hiện {mobile_count} Mobile Searches..."")
+                perform_searches(driver, count=mobile_count, mode=""MOBILE"")
+                
+                try:
+                    p = get_current_points(driver)
+                    logging.info(f""Points sau Mobile: {p}"")
+                except: pass
+                
+            except Exception as e:
+                logging.error(f""Mobile search error: {e}"")
+            finally:
+                safe_driver_quit(driver)
+        else:
+            logging.error(""Không thể khởi tạo Mobile Driver."")
+        
+    except Exception as e:
+        logging.error(f""[{profile_name}] Lỗi nghiêm trọng: {e}"")
+        take_screenshot(driver, f""critical_error_{profile_name}"")
+    finally:
+        safe_driver_quit(driver)
+    
+    logging.info(f""--- HOÀN TẤT: {profile_name} ---"")
+
+
+",""
+"Function:farm_rewards.py:main","main","farm_rewards.py",96,136,true,"
+
+def main():
+    setup_logging()
+    
+    parser = argparse.ArgumentParser(description=""Microsoft Rewards Farmer"")
+    parser.add_argument(""--visible"", action=""store_true"", help=""Hiển thị trình duyệt"")
+    parser.add_argument(""--pc"", type=int, default=PC_SEARCH_COUNT, help=f""Số lần search PC (default: {PC_SEARCH_COUNT})"")
+    parser.add_argument(""--mobile"", type=int, default=MOBILE_SEARCH_COUNT, help=f""Số lần search Mobile (default: {MOBILE_SEARCH_COUNT})"")
+    args = parser.parse_args()
+    
+    headless_mode = not args.visible
+    mode_str = ""HEADLESS (Ẩn)"" if headless_mode else ""VISIBLE (Hiện)""
+    
+    logging.info(f""=== AUTO MICROSOFT REWARDS ==="")
+    logging.info(f""=== CHẾ ĐỘ: {mode_str} | PC: {args.pc} | Mobile: {args.mobile} ==="")
+    
+    profiles_dir = os.path.join(os.getcwd(), ""profiles"")
+    if not os.path.exists(profiles_dir):
+        os.makedirs(profiles_dir)
+        os.makedirs(os.path.join(profiles_dir, ""Farming_Profile""))
+        logging.info(""Đã tạo thư mục profiles. Chạy lại để bắt đầu farm."")
+        return
+    
+    profiles = [d for d in os.listdir(profiles_dir) if os.path.isdir(os.path.join(profiles_dir, d))]
+    
+    if not profiles:
+        os.makedirs(os.path.join(profiles_dir, ""Farming_Profile""))
+        profiles = [""Farming_Profile""]
+    
+    logging.info(f""Tìm thấy {len(profiles)} profiles: {profiles}"")
+    
+    if len(profiles) == 1:
+        run_single_profile(profiles[0], os.path.join(profiles_dir, profiles[0]), headless=headless_mode, pc_count=args.pc, mobile_count=args.mobile)
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix=""Worker"") as executor:
+            futures = [
+                executor.submit(run_single_profile, p, os.path.join(profiles_dir, p), headless=headless_mode, pc_count=args.pc, mobile_count=args.mobile)
+                for p in profiles
+            ]
+            concurrent.futures.wait(futures)
+    
+    logging.info(""\n=== TẤT CẢ PROFILES HOÀN TẤT ==="")
+
+
+",""
+"Function:farm/decision.py:__init__","__init__","farm/decision.py",27,38,false,"    """"""
+
+    def __init__(self, zero_threshold: int = 3, min_samples: int = 3):
+        """"""
+        Args:
+            zero_threshold: số batch liên tiếp không kiếm được điểm trước khi dừng
+            min_samples:    số lần check tối thiểu trước khi cho phép dừng sớm
+        """"""
+        self.zero_threshold = zero_threshold
+        self.min_samples = min_samples
+        self._last_points = None
+        self._zero_streak = 0
+        self._sample_count = 0
+        self._stop_flagged = False
+
+    def update(self, current_points) -> bool:",""
+"Function:farm/decision.py:update","update","farm/decision.py",40,60,true,"        self._stop_flagged = False
+
+    def update(self, current_points) -> bool:
+        """"""Cập nhật với điểm hiện tại. Trả về True nếu đọc được điểm hợp lệ.""""""
+        if not isinstance(current_points, int) or current_points <= 0:
+            return False  # Không đọc được điểm — bỏ qua
+
+        if self._last_points is None:
+            self._last_points = current_points
+            return True
+
+        delta = current_points - self._last_points
+        self._last_points = current_points
+        self._sample_count += 1
+
+        if delta <= 0:
+            self._zero_streak += 1
+            logging.debug(f""[DECISION] Zero-delta streak: {self._zero_streak}/{self.zero_threshold}"")
+        else:
+            self._zero_streak = 0  # Reset nếu vừa kiếm được điểm
+            logging.debug(f""[DECISION] +{delta} pts. Streak reset."")
+
+        return True
+
+    def should_stop(self) -> bool:",""
+"Function:farm/decision.py:should_stop","should_stop","farm/decision.py",62,74,true,"        return True
+
+    def should_stop(self) -> bool:
+        """"""Trả về True nếu nên dừng search sớm.""""""
+        if self._sample_count < self.min_samples:
+            return False  # Chưa đủ dữ liệu để quyết định
+        if self._zero_streak >= self.zero_threshold:
+            if not self._stop_flagged:
+                self._stop_flagged = True
+                logging.info(
+                    f""[DECISION]  EarlyStop: {self._zero_streak} batches liên tiếp không kiếm điểm. ""
+                    f""Quota đã đạt thực tế!""
+                )
+            return True
+        return False
+
+    def reset(self):",""
+"Function:farm/decision.py:reset","reset","farm/decision.py",76,81,true,"        return False
+
+    def reset(self):
+        """"""Reset cho profile hoặc phase mới.""""""
+        self._last_points = None
+        self._zero_streak = 0
+        self._sample_count = 0
+        self._stop_flagged = False
+
+",""
+"Function:farm/decision.py:adaptive_batch","adaptive_batch","farm/decision.py",87,124,true,"# 2. ADAPTIVE BATCH SIZE
+# ─────────────────────────────────────────────
+def adaptive_batch(done: int, needed: int, base: int = 3) -> int:
+    """"""Tính batch size tối ưu dựa trên tiến độ.
+
+    Logic:
+      - Giai đoạn đầu (< 30% xong): batch lớn hơn để nhanh
+      - Giai đoạn giữa (30-80%):    batch bình thường
+      - Giai đoạn cuối (> 80% xong): batch nhỏ hơn để chính xác
+
+    Args:
+        done:  số searches đã làm
+        needed: tổng số searches cần làm
+        base:  batch size cơ bản
+
+    Returns:
+        batch size (min 1, max 5)
+    """"""
+    remaining = needed - done
+    if remaining <= 0:
+        return 1
+
+    if needed <= 0:
+        return base
+
+    progress = done / needed
+
+    if progress < 0.30:
+        # Giai đoạn đầu: tăng tốc (batch +2)
+        batch = min(base + 2, remaining, 5)
+    elif progress < 0.80:
+        # Giai đoạn giữa: bình thường
+        batch = min(base, remaining, 5)
+    else:
+        # Giai đoạn cuối: thận trọng (batch 1-2)
+        batch = min(2, remaining)
+
+    batch = max(1, batch)
+    logging.debug(f""[DECISION] adaptive_batch: done={done}/{needed} ({progress:.0%}) → batch={batch}"")
+    return batch
+
+",""
+"Function:farm/decision.py:auto_speed_config","auto_speed_config","farm/decision.py",137,187,true,"}
+
+def auto_speed_config(
+    remaining_searches: int,
+    elapsed_seconds: float,
+    timeout_seconds: float = 1500,
+    user_speed: str = ""auto""
+) -> dict:
+    """"""Tự chọn speed config tối ưu để hoàn thành quota trong thời gian cho phép.
+
+    Args:
+        remaining_searches: số searches còn lại
+        elapsed_seconds:    thời gian đã dùng (giây)
+        timeout_seconds:    giới hạn thời gian tổng cộng (giây)
+        user_speed:         speed do user chọn (""auto"" = để system quyết định)
+
+    Returns:
+        speed config dict với keys 'wait' và 'post'
+    """"""
+    # Nếu user đã chọn speed cụ thể, dùng theo user
+    if user_speed != ""auto"":
+        preset_map = {
+            "" Safe"": ""safe"", "" Medium"": ""medium"",
+            "" Fast"": ""fast"", ""⚡ Turbo"": ""turbo""
+        }
+        key = preset_map.get(user_speed, ""medium"")
+        return _SPEED_PRESETS[key]
+
+    time_left = timeout_seconds - elapsed_seconds
+
+    if remaining_searches <= 0 or time_left <= 0:
+        return _SPEED_PRESETS[""turbo""]
+
+    # Thời gian trung bình mỗi search ở từng mode (giây):
+    # safe≈18s, medium≈10s, fast≈6s, turbo≈4s
+    avg_time_per_search = {
+        ""safe"": 18, ""medium"": 10, ""fast"": 6, ""turbo"": 4
+    }
+
+    # Chọn speed chậm nhất mà vẫn kịp hoàn thành
+    chosen = ""turbo""
+    for speed in [""safe"", ""medium"", ""fast"", ""turbo""]:
+        estimated = remaining_searches * avg_time_per_search[speed]
+        if estimated <= time_left * 0.85:  # 85% thời gian còn lại = buffer
+            chosen = speed
+            break
+
+    cfg = _SPEED_PRESETS[chosen]
+    logging.info(
+        f""[DECISION]  auto_speed → '{chosen}' ""
+        f""({remaining_searches} searches, {time_left:.0f}s left)""
+    )
+    return cfg
+
+",""
+"Function:farm/decision.py:log_quota_confidence","log_quota_confidence","farm/decision.py",193,215,true,"# 4. QUOTA CONFIDENCE
+# ─────────────────────────────────────────────
+def log_quota_confidence(quota: dict, profile: str):
+    """"""Log mức độ tin cậy của quota data và đề xuất hành động.""""""
+    if quota is None:
+        logging.warning(f""[DECISION] [{profile}] ⚠️ Không có quota data — dùng fallback"")
+        return
+
+    inferred = quota.get('inferred', False)
+    pc_rem   = quota.get('pc_remaining_searches', 0)
+    mob_rem  = quota.get('mobile_remaining_searches', 0)
+
+    confidence = "" Chính xác (API)"" if not inferred else "" Ước tính (inferred)""
+    efficiency = ""tối ưu"" if not inferred else ""có thể lệch ±20%""
+
+    logging.info(
+        f""[DECISION] [{profile}] Quota confidence: {confidence} | ""
+        f""PC cần ~{pc_rem} searches, Mobile ~{mob_rem} searches | ""
+        f""Độ chính xác {efficiency}""
+    )
+
+    if inferred and pc_rem == 30:
+        logging.info(
+            f""[DECISION] [{profile}]  Hint: Re-read quota sau activities để có data chính xác hơn""
+        )
+",""
+"Function:farm/utils.py:setup_logging","setup_logging","farm/utils.py",19,50,true,"_logging_configured = False
+
+def setup_logging():
+    global _logging_configured
+    
+    if not os.path.exists(SCREENSHOT_DIR):
+        os.makedirs(SCREENSHOT_DIR)
+    
+    if _logging_configured:
+        return
+    _logging_configured = True
+    
+    log_file = os.path.join(LOG_DIR, f""farm_log_{datetime.now().strftime('%Y%m%d')}.log"")
+    
+    # Clear any existing handlers to prevent duplication
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(logging.INFO)
+    
+    # Add exactly 1 file handler + 1 stream handler
+    fh = logging.FileHandler(log_file, encoding='utf-8')
+    fh.setFormatter(logging.Formatter('%(asctime)s - [%(threadName)s] - %(levelname)s - %(message)s'))
+    root.addHandler(fh)
+    
+    sh = logging.StreamHandler()
+    sh.setFormatter(logging.Formatter('%(asctime)s - [%(threadName)s] - %(levelname)s - %(message)s'))
+    root.addHandler(sh)
+    
+    logging.getLogger(""urllib3"").setLevel(logging.CRITICAL)
+    logging.getLogger(""selenium"").setLevel(logging.CRITICAL)
+    logging.getLogger(""requests"").setLevel(logging.CRITICAL)
+    logging.getLogger(""webdriver_manager"").setLevel(logging.CRITICAL)
+    
+    logging.info(""=== BẮT ĐẦU PHIÊN CHẠY MỚI ==="")
+
+
+",""
+"Function:farm/utils.py:take_screenshot","take_screenshot","farm/utils.py",53,65,true,"
+
+def take_screenshot(driver, error_name=""error""):
+    if not driver: return
+    try:
+        timestamp = datetime.now().strftime(""%H%M%S"")
+        filename = f""{error_name}_{timestamp}.png""
+        filepath = os.path.join(SCREENSHOT_DIR, filename)
+        driver.save_screenshot(filepath)
+        logging.info(f""Đã chụp màn hình lỗi: {filepath}"")
+    except Exception as e:
+        if ""refused"" in str(e) or ""Max retries exceeded"" in str(e):
+            logging.warning(""⚠️ Không thể chụp màn hình: Driver đã mất kết nối."")
+        else:
+            logging.error(f""Không thể chụp màn hình: {e}"")
+
+
+",""
+"Function:farm/utils.py:random_sleep","random_sleep","farm/utils.py",68,69,true,"
+
+def random_sleep(min_seconds=2, max_seconds=5):
+    time.sleep(random.uniform(min_seconds, max_seconds))
+
+
+",""
+"Function:farm/utils.py:check_and_recover_oom","check_and_recover_oom","farm/utils.py",72,163,true,"
+
+def check_and_recover_oom(driver, context=""""):
+    """"""Detect browser error pages (OOM, DNS, connection, timeout, etc.) and auto-refresh.
+    
+    Returns True if error was detected and recovery attempted, False if page is fine.
+    """"""
+    try:
+        title = (driver.title or """").lower()
+        current_url = (driver.current_url or """").lower()
+        
+        # Quick check: if title looks normal, skip expensive body check
+        error_title_keywords = [
+            ""problem"", ""can't reach"", ""error"", ""aw, snap"", ""aw snap"",
+            ""this page"", ""không thể"", ""trang này"", ""hmm"",
+        ]
+        is_error_title = any(kw in title for kw in error_title_keywords)
+        
+        # Also check for about:blank or edge error URLs
+        is_error_url = any(x in current_url for x in [
+            ""about:blank"", ""edge://"", ""chrome-error://"", ""neterror"",
+        ])
+        
+        if not is_error_title and not is_error_url:
+            return False
+        
+        # Confirm: check body text for specific error indicators
+        try:
+            body_text = driver.find_element(By.TAG_NAME, ""body"").text.lower()
+        except:
+            body_text = """"
+        
+        error_body_keywords = [
+            # OOM errors
+            ""out of memory"", ""not enough memory"", ""ran out of memory"",
+            ""err_out_of_memory"",
+            # Connection errors
+            ""err_connection_refused"", ""err_connection_timed_out"",
+            ""err_connection_reset"", ""err_network_changed"",
+            ""err_internet_disconnected"", ""err_name_not_resolved"",
+            # DNS errors
+            ""dns_probe"", ""dns probe"", ""server dns address"",
+            # SSL errors
+            ""err_ssl"", ""err_cert"", ""net::err_cert"",
+            # Timeout & loading errors
+            ""err_timed_out"", ""err_empty_response"",
+            ""err_too_many_redirects"",
+            # Generic Edge/Chrome error pages
+            ""having a problem"", ""try coming back"",
+            ""this page isn't working"", ""took too long to respond"",
+            ""can't be reached"", ""refused to connect"",
+            ""there is no internet connection"",
+            ""check your internet"", ""reload"", ""err_failed"",
+            # Vietnamese error messages
+            ""trang này đang gặp sự cố"", ""không thể truy cập"",
+        ]
+        is_error_body = any(kw in body_text for kw in error_body_keywords)
+        
+        if not is_error_body and not is_error_url:
+            return False
+        
+        # Error detected! Auto-refresh with retries
+        ctx = f"" ({context})"" if context else """"
+        logging.warning(f""⚠️ [ERROR PAGE] Error detected{ctx}: title='{title[:50]}'"")
+        
+        for attempt in range(3):
+            try:
+                time.sleep(2 + attempt * 3)  # 2s, 5s, 8s increasing delay
+                driver.refresh()
+                time.sleep(5)
+                
+                # Check if recovered
+                new_title = (driver.title or """").lower()
+                if not any(kw in new_title for kw in error_title_keywords):
+                    logging.info(f""✅ [ERROR PAGE] Recovered after refresh #{attempt + 1}"")
+                    return True
+                    
+                logging.warning(f""[ERROR PAGE] Still error after refresh #{attempt + 1}"")
+            except Exception as refresh_err:
+                logging.warning(f""[ERROR PAGE] Refresh error: {refresh_err}"")
+        
+        # If still error after 3 retries, try navigating to bing.com
+        try:
+            logging.warning(""[ERROR PAGE] Trying fresh navigation to bing.com..."")
+            driver.get(""https://www.bing.com/"")
+            time.sleep(5)
+            logging.info(""✅ [ERROR PAGE] Navigated to bing.com successfully"")
+            return True
+        except:
+            logging.error(""[ERROR PAGE] Failed to recover!"")
+            return True  # Still return True so caller knows error happened
+            
+    except Exception:
+        return False
+
+
+",""
+"Function:farm/utils.py:simulate_typing","simulate_typing","farm/utils.py",166,175,true,"
+
+def simulate_typing(element, text):
+    for i, char in enumerate(text):
+        if random.random() < 0.05 and i < len(text) - 1:
+            wrong_char = random.choice(string.ascii_lowercase)
+            element.send_keys(wrong_char)
+            time.sleep(random.uniform(0.1, 0.3))
+            element.send_keys(Keys.BACKSPACE)
+            time.sleep(random.uniform(0.1, 0.2))
+        element.send_keys(char)
+        time.sleep(random.uniform(0.05, 0.25))
+
+
+",""
+"Function:farm/utils.py:simulate_reading_interaction","simulate_reading_interaction","farm/utils.py",178,196,true,"
+
+def simulate_reading_interaction(driver):
+    try:
+        paragraphs = driver.find_elements(By.TAG_NAME, ""p"")
+        if paragraphs:
+            target_p = random.choice(paragraphs)
+            driver.execute_script(""arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});"", target_p)
+            time.sleep(1)
+            driver.execute_script(""""""
+                var element = arguments[0];
+                var range = document.createRange();
+                range.selectNodeContents(element);
+                var selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+            """""", target_p)
+            time.sleep(random.uniform(1, 3))
+            driver.execute_script(""window.getSelection().removeAllRanges();"")
+    except:
+        pass
+
+
+",""
+"Function:farm/utils.py:bezier_curve_points","bezier_curve_points","farm/utils.py",200,231,true,"
+# ============== BEZIER MOUSE CURVES ==============
+def bezier_curve_points(start, end, num_points=25, jitter=3):
+    """"""Tạo Bezier curve với jitter noise""""""
+    ctrl1 = (
+        start[0] + (end[0] - start[0]) * random.uniform(0.2, 0.4) + random.randint(-50, 50),
+        start[1] + (end[1] - start[1]) * random.uniform(0.1, 0.3) + random.randint(-30, 30)
+    )
+    ctrl2 = (
+        start[0] + (end[0] - start[0]) * random.uniform(0.6, 0.8) + random.randint(-50, 50),
+        start[1] + (end[1] - start[1]) * random.uniform(0.7, 0.9) + random.randint(-30, 30)
+    )
+    
+    points = []
+    for i in range(num_points + 1):
+        t = i / num_points
+        t_eased = t * t * (3 - 2 * t)
+        
+        x = (1-t_eased)**3 * start[0] + 3*(1-t_eased)**2*t_eased * ctrl1[0] + 3*(1-t_eased)*t_eased**2 * ctrl2[0] + t_eased**3 * end[0]
+        y = (1-t_eased)**3 * start[1] + 3*(1-t_eased)**2*t_eased * ctrl1[1] + 3*(1-t_eased)*t_eased**2 * ctrl2[1] + t_eased**3 * end[1]
+        
+        if 0 < i < num_points:
+            x += random.randint(-jitter, jitter)
+            y += random.randint(-jitter, jitter)
+        
+        points.append((int(x), int(y)))
+    
+    if random.random() < 0.3:
+        overshoot_x = end[0] + random.randint(5, 15) * (1 if random.random() > 0.5 else -1)
+        overshoot_y = end[1] + random.randint(3, 10) * (1 if random.random() > 0.5 else -1)
+        points.append((int(overshoot_x), int(overshoot_y)))
+        points.append((int(end[0]), int(end[1])))
+    
+    return points
+
+
+",""
+"Function:farm/utils.py:human_bezier_move","human_bezier_move","farm/utils.py",234,260,true,"
+
+def human_bezier_move(driver, element):
+    try:
+        viewport_width = driver.execute_script(""return window.innerWidth;"")
+        viewport_height = driver.execute_script(""return window.innerHeight;"")
+        start_x = random.randint(0, viewport_width)
+        start_y = random.randint(0, viewport_height)
+        elem_location = element.location
+        elem_size = element.size
+        end_x = elem_location['x'] + elem_size['width'] // 2 + random.randint(-5, 5)
+        end_y = elem_location['y'] + elem_size['height'] // 2 + random.randint(-5, 5)
+        
+        curve_points = bezier_curve_points((start_x, start_y), (end_x, end_y))
+        actions = ActionChains(driver)
+        last_x, last_y = start_x, start_y
+        
+        for point in curve_points:
+            dx = point[0] - last_x
+            dy = point[1] - last_y
+            actions.move_by_offset(dx, dy)
+            last_x, last_y = point
+            actions.pause(random.uniform(0.01, 0.03))
+        
+        actions.perform()
+        return True
+    except Exception as e:
+        logging.debug(f""Bezier move failed: {e}"")
+        return False
+
+
+",""
+"Function:farm/utils.py:human_hover_and_click","human_hover_and_click","farm/utils.py",263,276,true,"
+
+def human_hover_and_click(driver, element):
+    try:
+        if random.random() < 0.7:
+            if human_bezier_move(driver, element):
+                time.sleep(random.uniform(0.2, 0.5))
+                element.click()
+                return
+        actions = ActionChains(driver)
+        actions.move_to_element(element).perform()
+        time.sleep(random.uniform(0.3, 0.8))
+        element.click()
+    except:
+        try: element.click()
+        except: driver.execute_script(""arguments[0].click();"", element)
+
+
+",""
+"Function:farm/utils.py:apply_mobile_emulation","apply_mobile_emulation","farm/utils.py",279,311,true,"
+
+def apply_mobile_emulation(driver, device_name=None):
+    try:
+        if device_name is None:
+            device_name = random.choice(list(MOBILE_DEVICES.keys()))
+        device = MOBILE_DEVICES.get(device_name, MOBILE_DEVICES['pixel_7'])
+        
+        # Get actual Edge version for UA
+        try:
+            from .driver import get_edge_version
+            edge_ver = get_edge_version()
+        except:
+            edge_ver = ""133.0.0.0""
+        
+        ua = device['ua'].replace('{VERSION}', edge_ver)
+        
+        driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride', {
+            'width': device['width'], 'height': device['height'],
+            'deviceScaleFactor': device['deviceScaleFactor'], 'mobile': device['mobile'],
+            'screenWidth': device['screenWidth'], 'screenHeight': device['screenHeight']
+        })
+        driver.execute_cdp_cmd('Emulation.setTouchEmulationEnabled', {'enabled': True, 'maxTouchPoints': 5})
+        driver.execute_cdp_cmd('Emulation.setUserAgentOverride', {
+            'userAgent': ua,
+            'platform': 'Android' if 'Android' in ua else 'iPhone'
+        })
+        
+        driver.set_window_size(device['width'], device['height'])
+        
+        logging.info(f""   [MOBILE CDP] Emulating: {device_name} ({device['width']}x{device['height']}) Edge/{edge_ver}"")
+        return True
+    except Exception as e:
+        logging.warning(f""Mobile emulation failed: {e}"")
+        return False
+
+
+",""
+"Function:farm/utils.py:human_scroll","human_scroll","farm/utils.py",314,327,true,"
+
+def human_scroll(driver):
+    try:
+        total_height = driver.execute_script(""return document.body.scrollHeight"")
+        current_position = 0
+        while current_position < (total_height * 0.6):
+            scroll_step = random.randint(300, 700)
+            current_position += scroll_step
+            driver.execute_script(f""window.scrollTo(0, {current_position});"")
+            time.sleep(random.uniform(0.5, 1.2))
+        scroll_up = random.randint(200, 500)
+        driver.execute_script(f""window.scrollBy(0, -{scroll_up});"")
+        time.sleep(random.uniform(0.8, 1.5))
+    except:
+        pass
+",""
+"Function:farm/search.py:interact_with_results","interact_with_results","farm/search.py",22,103,true,"
+
+def interact_with_results(driver):
+    try:
+        links = driver.find_elements(By.CSS_SELECTOR, ""li.b_algo h2 a, li.b_algo h3 a"")
+        if not links or len(links) < 2: return
+        if random.random() > 0.2: return  # 20% chance (was 40%)
+
+        # Track tabs before clicking
+        original_window = driver.current_window_handle
+        tabs_before = set(driver.window_handles)
+
+        target_link = random.choice(links[:3])
+        logging.info("" -> [DEEP BROWSE] Click vào kết quả tìm kiếm..."")
+        
+        driver.execute_script(""arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});"", target_link)
+        time.sleep(random.uniform(1, 2))
+        human_hover_and_click(driver, target_link)
+        
+        time.sleep(random.uniform(5, 8))
+        
+        # Check if new tab was opened
+        tabs_after = set(driver.window_handles)
+        new_tabs = tabs_after - tabs_before
+        
+        if new_tabs:
+            # Close all new tabs and switch back
+            for tab in new_tabs:
+                try:
+                    driver.switch_to.window(tab)
+                    time.sleep(1)
+                    driver.close()
+                except: pass
+            driver.switch_to.window(original_window)
+            logging.info("" -> Đã đóng tab mới, quay lại trang tìm kiếm."")
+        else:
+            # Same tab navigation
+            simulate_reading_interaction(driver)
+            human_scroll(driver)
+            
+            try:
+                sub_links = driver.find_elements(By.TAG_NAME, ""a"")
+                valid_subs = [l for l in sub_links if len(l.text) > 10 and l.is_displayed()]
+                if valid_subs and random.random() > 0.3:
+                    sub = random.choice(valid_subs)
+                    logging.info(f""    -> [DEEP] Click tiếp: {sub.text[:15]}..."")
+                    driver.execute_script(""arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});"", sub)
+                    time.sleep(1)
+                    try: sub.click()
+                    except: driver.execute_script(""arguments[0].click();"", sub)
+                    
+                    time.sleep(random.uniform(5, 8))
+                    
+                    # Close new tabs from sub-link clicks too
+                    sub_new_tabs = set(driver.window_handles) - tabs_before
+                    if sub_new_tabs:
+                        for tab in sub_new_tabs:
+                            try:
+                                driver.switch_to.window(tab)
+                                driver.close()
+                            except: pass
+                        driver.switch_to.window(original_window)
+                    else:
+                        try:
+                            page_title = driver.title
+                            if page_title and len(page_title) > 5:
+                                clean_topic = page_title.split('-')[0].split('|')[0].strip()
+                                new_query = f""more information about {clean_topic}""
+                                from .config import query_gen_lock
+                                with query_gen_lock:
+                                    query_gen.chain_queue.insert(0, new_query)
+                                logging.info(f""    [AI LEARNING] Đọc thấy: '{clean_topic}' -> Thêm vào lịch sử tìm kiếm."")
+                        except: pass
+                        human_scroll(driver)
+                        driver.back()
+                        time.sleep(2)
+            except: pass
+            
+            driver.back()
+            logging.info("" -> Đã quay lại trang tìm kiếm."")
+            time.sleep(random.uniform(2, 4))
+        
+    except:
+        pass
+
+
+",""
+"Function:farm/search.py:do_one_search","do_one_search","farm/search.py",106,136,true,"
+
+def do_one_search(driver, query):
+    try:
+        # Check for OOM before searching
+        check_and_recover_oom(driver, f""before search '{query[:20]}'"")
+        
+        try:
+            search_box = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.NAME, ""q""))
+            )
+        except:
+            driver.get(""https://www.bing.com/"")
+            time.sleep(3)
+            check_and_recover_oom(driver, ""after bing nav"")
+            search_box = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.NAME, ""q""))
+            )
+
+        search_box.clear()
+        simulate_typing(search_box, query)
+        time.sleep(0.5)
+        search_box.send_keys(Keys.RETURN)
+        
+        random_sleep(2, 4)
+        
+        # Check for OOM after search results load
+        check_and_recover_oom(driver, f""after search '{query[:20]}'"")
+        
+        human_scroll(driver)
+        
+    except Exception as e:
+        logging.error(f""[SEARCH] Lỗi search '{query}': {e}"")
+
+
+",""
+"Function:farm/search.py:do_one_news_read","do_one_news_read","farm/search.py",139,167,true,"
+
+def do_one_news_read(driver):
+    try:
+        if random.random() > 0.7:
+            driver.refresh()
+            time.sleep(3)
+
+        articles = driver.find_elements(By.CSS_SELECTOR, ""a.title, div.news-card a"")
+        if not articles:
+            return False
+
+        idx = random.randint(0, min(len(articles)-1, 15))
+        target = articles[idx]
+        
+        driver.execute_script(""arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});"", target)
+        time.sleep(1)
+        
+        url = target.get_attribute(""href"")
+        if url:
+            logging.info(f""   [NEWS] Đọc: {target.text[:20]}..."")
+            driver.get(url)
+            random_sleep(3, 5)
+            simulate_reading_interaction(driver)
+            human_scroll(driver)
+            driver.back()
+            time.sleep(2)
+            return True
+    except:
+        return False
+    return False
+
+
+",""
+"Function:farm/search.py:perform_searches","perform_searches","farm/search.py",170,222,true,"
+
+def perform_searches(driver, count, mode=""PC""):
+    logging.info(f""[{mode}] Bắt đầu thực hiện {count} lần tìm kiếm..."")
+    base_url = ""https://www.bing.com/""
+    
+    try:
+        driver.get(base_url)
+        random_sleep(3, 5)
+    except Exception as e:
+        logging.error(f""[{mode}] Không thể truy cập Bing: {e}"")
+        take_screenshot(driver, ""bing_access_error"")
+        return
+
+    for i in range(count):
+        try:
+            query = query_gen.generate()
+            logging.info(f""[{mode} {i+1}/{count}] Searching: {query}"")
+            
+            try:
+                search_box = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.NAME, ""q""))
+                )
+            except:
+                driver.get(base_url)
+                search_box = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.NAME, ""q""))
+                )
+
+            search_box.click()
+            time.sleep(random.uniform(0.5, 1.0))
+            search_box.clear()
+            simulate_typing(search_box, query)
+            time.sleep(random.uniform(0.5, 1.0))
+            search_box.send_keys(Keys.RETURN)
+            
+            random_sleep(10, 18)
+            human_scroll(driver)
+            interact_with_results(driver)
+            random_sleep(5, 10)
+            
+        except Exception as e:
+            msg = str(e)
+            if ""refused"" in msg or ""Max retries exceeded"" in msg or ""disconnected"" in msg:
+                logging.error(f""[{mode}] ❌ MẤT KẾT NỐI VỚI DRIVER. Dừng search!"")
+                break
+                
+            logging.error(f""[{mode}] Lỗi trong lần tìm kiếm {i+1}: {e}"")
+            take_screenshot(driver, f""search_error_{i+1}"")
+            try:
+                driver.get(base_url)
+                random_sleep(5, 10)
+            except: 
+                logging.error(f""[{mode}] Không thể recover driver. Abort."")
+                break
+
+
+",""
+"Function:farm/search.py:perform_mobile_news_reads","perform_mobile_news_reads","farm/search.py",225,273,true,"
+
+def perform_mobile_news_reads(driver, count=10):
+    """"""Đọc báo trên Mobile (Bing News)""""""
+    logging.info(f""--- [MOBILE READ] Bắt đầu đọc {count} bài báo ---"")
+    try:
+        driver.get(""https://www.bing.com/news"")
+        random_sleep(3, 5)
+        
+        selectors = [""a.title"", "".news-card a"", ""a.news_title"", "".b_algo a""]
+        articles = []
+        for sel in selectors:
+            try:
+                found = driver.find_elements(By.CSS_SELECTOR, sel)
+                if found:
+                    articles.extend(found)
+            except: pass
+            
+        valid_links = []
+        seen_urls = set()
+        for a in articles:
+            try:
+                href = a.get_attribute(""href"")
+                if href and ""bing.com/news"" not in href and href not in seen_urls:
+                    valid_links.append(href)
+                    seen_urls.add(href)
+            except: pass
+            
+        logging.info(f""--- [MOBILE READ] Tìm thấy {len(valid_links)} bài báo hợp lệ ---"")
+        
+        read_count = 0
+        for i, link in enumerate(valid_links):
+            if read_count >= count:
+                break
+                
+            logging.info(f""[MOBILE READ {read_count+1}/{count}] Đang đọc: {link[:50]}..."")
+            try:
+                driver.get(link)
+                random_sleep(3, 5)
+                driver.execute_script(""window.scrollTo(0, document.body.scrollHeight/2);"")
+                random_sleep(2, 4)
+                driver.execute_script(""window.scrollTo(0, document.body.scrollHeight);"")
+                random_sleep(2, 4)
+                read_count += 1
+            except Exception as e:
+                logging.error(f""Lỗi khi đọc báo: {e}"")
+                
+        logging.info(f""--- [MOBILE READ] Hoàn thành {read_count}/{count} bài ---"")
+        
+    except Exception as e:
+        logging.error(f""Lỗi Mobile News: {e}"")
+
+
+",""
+"Function:farm/search.py:farm_parallel","farm_parallel","farm/search.py",276,379,true,"
+
+def farm_parallel(driver, profile_path=None, pc_count=PC_SEARCH_COUNT):
+    """"""Farm PC searches in single-tab mode (RAM-friendly).""""""
+    logging.info(""\n--- CHẾ ĐỘ ĐƠN NHIỆM (TIẾT KIỆM RAM) ---"")
+    
+    MAX_RESTART_ATTEMPTS = 3
+    restart_count = 0
+    searches_done = 0
+    
+    if pc_count <= 0:
+        logging.info(""   [INFO] PC Count = 0 -> Bỏ qua PC Farming."")
+        return driver
+    
+    total_searches = pc_count
+    
+    while restart_count < MAX_RESTART_ATTEMPTS:
+        try:
+            driver.get(""https://www.bing.com/"")
+            time.sleep(3)
+            
+            last_points = get_points_from_search_page(driver)
+            no_gain_count = 0
+            
+            logging.info(f""-> Single-tab search: Max {total_searches} searches"")
+            
+            while searches_done < total_searches:
+                if not is_driver_alive(driver):
+                    raise Exception(""Driver crashed"")
+                
+                q = query_gen.generate()
+                logging.info(f""[SEARCH] {searches_done+1}/{total_searches}: {q}"")
+                
+                do_one_search(driver, q)
+                searches_done += 1
+                
+                # Check points every search (inline on results page)
+                current_pts = get_points_from_search_page(driver)
+                if current_pts is not None and last_points is not None:
+                    if current_pts > last_points:
+                        diff = current_pts - last_points
+                        logging.info(f""    +{diff} điểm (Total: {current_pts})"")
+                        last_points = current_pts
+                        no_gain_count = 0
+                    else:
+                        no_gain_count += 1
+                        if no_gain_count % 4 == 0:
+                            logging.warning(f""   ⚠️ Điểm không tăng sau {no_gain_count} searches ({current_pts})"")
+                        
+                    if no_gain_count >= 6:
+                        logging.info(""-> ĐÃ ĐẠT GIỚI HẠN ĐIỂM SEARCH. DỪNG."")
+                        break
+                elif current_pts is not None:
+                    last_points = current_pts
+                    logging.info(f""    Điểm hiện tại: {current_pts}"")
+                
+                interact_with_results(driver)
+                random_sleep(1, 3)
+                
+                # Coffee break every 12-15 searches
+                if searches_done > 0 and searches_done % random.randint(20, 25) == 0:
+                    break_time = random.randint(20, 40)
+                    logging.info(f""\n[COFFEE BREAK] Nghỉ {break_time} giây..."")
+                    time.sleep(break_time)
+                    logging.info(""-> Quay lại!\n"")
+            
+            # Quick news reads in same tab (5 articles)
+            logging.info(""-> Đọc tin tức (cùng tab)..."")
+            try:
+                driver.get(""https://www.bing.com/news"")
+                time.sleep(3)
+                for i in range(2):  # Reduced from 5
+                    if do_one_news_read(driver):
+                        logging.info(f""   [NEWS] Đọc bài {i+1}/5"")
+                    else:
+                        break
+            except Exception:
+                pass
+            
+            logging.info(""--- HOÀN THÀNH SEARCH + NEWS ---"")
+            return driver
+            
+        except Exception as e:
+            restart_count += 1
+            logging.error(f""Lỗi Critical (lần {restart_count}/{MAX_RESTART_ATTEMPTS}): {e}"")
+            
+            if restart_count >= MAX_RESTART_ATTEMPTS:
+                logging.error(""Đã hết số lần thử. Dừng farm."")
+                return driver
+            
+            logging.warning(f""-> Sẽ khởi động lại Driver sau 10 giây..."")
+            safe_driver_quit(driver)
+            time.sleep(10)
+            
+            if profile_path:
+                driver = setup_driver(profile_path, is_mobile=False, headless=True)
+                if driver:
+                    logging.info(f""[RECOVERY] Driver đã restart. Tiếp tục từ search #{searches_done + 1}"")
+                else:
+                    logging.error(""[RECOVERY] Không thể restart driver."")
+                    return None
+            else:
+                logging.error(""[RECOVERY] Không có profile_path, không thể restart."")
+                return driver
+    
+    return driver
+
+",""
+"Function:farm/query.py:__init__","__init__","farm/query.py",13,20,false,"class QueryGenerator:
+    """"""Thread-safe query generator với global lock protection + Bing Suggest""""""
+    def __init__(self):
+        self.history = set()
+        self.chain_queue = []
+        self._suggest_cache = []
+        self._suggest_seeds = [
+            ""how to"", ""best"", ""why"", ""what is"", ""top 10"",
+            ""latest"", ""new"", ""price of"", ""review"", ""where to""
+        ]
+    
+    def reset_history(self):
+",""
+"Function:farm/query.py:reset_history","reset_history","farm/query.py",22,27,true,"        ]
+    
+    def reset_history(self):
+        """"""Reset used query history - call between profiles to avoid pool exhaustion.""""""
+        self.history.clear()
+        self.chain_queue.clear()
+        self._suggest_cache.clear()
+        logging.info(""[QUERY] History reset. Pool sẵ được tái sử dụng."")
+
+    def generate(self):
+",""
+"Function:farm/query.py:generate","generate","farm/query.py",29,32,true,"        logging.info(""[QUERY] History reset. Pool sẵ được tái sử dụng."")
+
+    def generate(self):
+        """"""Thread-safe generate với global lock""""""
+        with query_gen_lock:
+            return self._generate_unsafe()
+    
+    def _generate_unsafe(self):
+",""
+"Function:farm/query.py:_generate_unsafe","_generate_unsafe","farm/query.py",34,61,false,"            return self._generate_unsafe()
+    
+    def _generate_unsafe(self):
+        """"""Internal generate (không thread-safe, gọi qua generate())""""""
+        if self.chain_queue:
+            q = self.chain_queue.pop(0)
+            if q not in self.history:
+                self.history.add(q)
+                return q
+            
+        # 45% chance: use Bing Suggest trending query (most natural)
+        if random.random() < 0.45:
+            q = self._get_suggest_query()
+            if q and q not in self.history:
+                self.history.add(q)
+                return q
+
+        if random.random() < 0.4:
+            self._create_chain_queries()
+            if self.chain_queue:
+                return self._generate_unsafe()
+
+        for _ in range(50): 
+            q = self._create_random_query()
+            if q not in self.history:
+                self.history.add(q)
+                return q
+                
+        base = self._create_random_query()
+        return f""{base} {random.randint(100, 999)}""
+
+    def _get_suggest_query(self):
+",""
+"Function:farm/query.py:_get_suggest_query","_get_suggest_query","farm/query.py",63,69,false,"        return f""{base} {random.randint(100, 999)}""
+
+    def _get_suggest_query(self):
+        """"""Fetch query from Bing Suggest API (cached).""""""
+        if not self._suggest_cache:
+            self._fetch_bing_suggestions()
+        if self._suggest_cache:
+            return self._suggest_cache.pop(0)
+        return None
+
+    def _fetch_bing_suggestions(self):
+",""
+"Function:farm/query.py:_fetch_bing_suggestions","_fetch_bing_suggestions","farm/query.py",71,96,false,"        return None
+
+    def _fetch_bing_suggestions(self):
+        """"""Fetch trending suggestions from Bing autocomplete API.""""""
+        try:
+            import urllib.request
+            import urllib.parse
+            seed = random.choice(self._suggest_seeds)
+            topic = random.choice(
+                VOCAB.get(""tech_products"", []) + VOCAB.get(""famous_people"", []) + 
+                VOCAB.get(""cities_global"", []) + VOCAB.get(""animals"", [])
+            )
+            query = f""{seed} {topic}""
+            url = f""https://api.bing.com/osjson.aspx?query={urllib.parse.quote(query)}""
+            
+            req = urllib.request.Request(url, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            resp = urllib.request.urlopen(req, timeout=3)
+            data = json.loads(resp.read().decode('utf-8'))
+            
+            if len(data) >= 2 and isinstance(data[1], list):
+                suggestions = [s for s in data[1] if len(s) > 5 and s != query]
+                random.shuffle(suggestions)
+                self._suggest_cache.extend(suggestions[:8])
+                logging.info(f""   [SUGGEST] Fetched {len(suggestions[:8])} trending queries from Bing"")
+        except Exception as e:
+            logging.debug(f""Bing Suggest unavailable: {e}"")
+
+    def _create_chain_queries(self):
+",""
+"Function:farm/query.py:_create_chain_queries","_create_chain_queries","farm/query.py",98,161,false,"            logging.debug(f""Bing Suggest unavailable: {e}"")
+
+    def _create_chain_queries(self):
+        chain_len = random.randint(3, 7)
+        topic = random.choice([""travel"", ""tech"", ""celeb"", ""game"", ""cooking""])
+        
+        if topic == ""travel"":
+            city = random.choice(VOCAB[""cities_vn""] + VOCAB[""cities_global""])
+            pool = [
+                f""images of {city}"", f""weather in {city} today"",
+                f""best tourist attractions in {city}"", f""cheap hotels in {city}"", 
+                f""flights to {city}"", f""{city} nightlife"", f""{city} street food"",
+                f""things to do in {city}"", f""best time to visit {city}""
+            ]
+            random.shuffle(pool)
+            self.chain_queue.extend(pool[:chain_len])
+            logging.info(f""   [SMART CHAIN] Du lịch: {city} ({chain_len} queries)"")
+
+        elif topic == ""tech"":
+            product = random.choice(VOCAB[""tech_products""])
+            pool = [
+                f""{product} official release date"", f""{product} full specifications"",
+                f""{product} vs iPhone 15"", f""{product} review video"", 
+                f""price of {product} in Vietnam"", f""{product} unboxing"",
+                f""{product} pros and cons"", f""is {product} worth buying""
+            ]
+            random.shuffle(pool)
+            self.chain_queue.extend(pool[:chain_len])
+            logging.info(f""   [SMART CHAIN] Công nghệ: {product} ({chain_len} queries)"")
+            
+        elif topic == ""celeb"":
+            person = random.choice(VOCAB[""famous_people""])
+            pool = [
+                f""who is {person}"", f""{person} latest news"", 
+                f""{person} net worth {datetime.now().year}"",
+                f""{person} family and children"", f""{person} instagram official"",
+                f""{person} age and birthday"", f""{person} interview"",
+                f""{person} awards and achievements""
+            ]
+            random.shuffle(pool)
+            self.chain_queue.extend(pool[:chain_len])
+            logging.info(f""   [SMART CHAIN] Sao: {person} ({chain_len} queries)"")
+
+        elif topic == ""game"":
+            game = random.choice(VOCAB[""games""])
+            pool = [
+                f""{game} download pc"", f""{game} system requirements"", 
+                f""{game} beginner guide"", f""{game} top tier characters"", 
+                f""{game} latest patch notes"", f""{game} tier list"",
+                f""{game} best settings"", f""{game} tips and tricks""
+            ]
+            random.shuffle(pool)
+            self.chain_queue.extend(pool[:chain_len])
+            logging.info(f""   [SMART CHAIN] Game: {game} ({chain_len} queries)"")
+            
+        elif topic == ""cooking"":
+            dish = random.choice(VOCAB[""food_vn""] + VOCAB[""food_global""])
+            pool = [
+                f""how to cook {dish} at home"", f""best {dish} recipe simple"",
+                f""{dish} calories"", f""history of {dish}"", f""ingredients for {dish}"",
+                f""{dish} variations"", f""easy {dish} for beginners"",
+                f""{dish} restaurant near me""
+            ]
+            random.shuffle(pool)
+            self.chain_queue.extend(pool[:chain_len])
+            logging.info(f""   [SMART CHAIN] Nấu ăn: {dish} ({chain_len} queries)"")
+
+    def _create_random_query(self):
+",""
+"Function:farm/query.py:_create_random_query","_create_random_query","farm/query.py",163,241,false,"            logging.info(f""   [SMART CHAIN] Nấu ăn: {dish} ({chain_len} queries)"")
+
+    def _create_random_query(self):
+        strategy = random.choices(
+            [""travel"", ""tech"", ""coding"", ""food"", ""celeb"", ""finance"", ""question"", ""compare"", ""local"",
+             ""health"", ""science"", ""movies"", ""sports"", ""education""],
+            weights=[12, 12, 8, 12, 8, 8, 12, 4, 4, 5, 5, 5, 5, 3]
+        )[0]
+
+        if strategy == ""travel"":
+            city = random.choice(VOCAB[""cities_vn""] + VOCAB[""cities_global""])
+            action = random.choice([""hotels"", ""flights to"", ""weather in"", ""tourist attractions"", ""map of"", ""food in""])
+            return f""{action} {city}""
+        elif strategy == ""tech"":
+            product = random.choice(VOCAB[""tech_products""])
+            suffix = random.choice(VOCAB[""modifiers""])
+            return f""{product} {suffix}""
+        elif strategy == ""coding"":
+            stack = random.choice(VOCAB[""coding_stack""])
+            suffix = random.choice([""tutorial"", ""interview questions"", ""documentation"", ""error handling"", ""course"", ""best practices""])
+            return f""{stack} {suffix}""
+        elif strategy == ""food"":
+            dish = random.choice(VOCAB[""food_vn""] + VOCAB[""food_global""])
+            suffix = random.choice([""recipe"", ""calories"", ""near me"", ""history"", ""ingredients"", ""best restaurant""])
+            return f""{dish} {suffix}""
+        elif strategy == ""celeb"":
+            person = random.choice(VOCAB[""famous_people""])
+            suffix = random.choice([""net worth"", ""news"", ""family"", ""height"", ""quotes"", ""biography"", ""latest song"", ""movies""])
+            return f""{person} {suffix}""
+        elif strategy == ""finance"":
+            return random.choice(VOCAB[""finance""])
+        elif strategy == ""question"":
+            prefix = random.choice(VOCAB[""questions_prefix""])
+            topic = random.choice(VOCAB[""animals""] + VOCAB[""nature""] + [""AI"", ""Blockchain"", ""Climate change"", ""Space exploration""])
+            if prefix == ""Difference between"":
+                return f""{prefix} {topic} and {random.choice(VOCAB['animals'])}""
+            return f""{prefix} {topic}""
+        elif strategy == ""compare"":
+            cat = ""tech_products"" if random.random() > 0.5 else ""games""
+            item1 = random.choice(VOCAB[cat])
+            item2 = random.choice(VOCAB[cat])
+            while item1 == item2:
+                item2 = random.choice(VOCAB[cat])
+            return f""{item1} vs {item2}""
+        elif strategy == ""local"":
+            service = random.choice([""Coffee shop"", ""Gym"", ""Cinema"", ""Pharmacy"", ""ATM"", ""Gas station"", ""Supermarket""])
+            return f""{service} near me""
+        elif strategy == ""health"":
+            topic = random.choice([""vitamin D benefits"", ""how to sleep better"", ""healthy breakfast ideas"",
+                ""home workout routine"", ""stress relief techniques"", ""meditation guide"",
+                ""calories burned walking"", ""best protein sources"", ""immune system boost"",
+                ""yoga for beginners"", ""mental health tips"", ""healthy meal prep""])
+            year = datetime.now().year
+            return f""{topic} {year}"" if random.random() < 0.3 else topic
+        elif strategy == ""science"":
+            topic = random.choice([""James Webb telescope"", ""Mars exploration"", ""quantum computing"",
+                ""climate change solutions"", ""renewable energy"", ""DNA editing CRISPR"",
+                ""black holes explained"", ""ocean exploration"", ""electric vehicles"",
+                ""artificial intelligence future"", ""5G technology"", ""nuclear fusion""])
+            return f""{topic} latest news"" if random.random() < 0.3 else topic
+        elif strategy == ""movies"":
+            topic = random.choice([""best movies"", ""Netflix top shows"", ""Marvel upcoming movies"",
+                ""anime recommendations"", ""Oscar winners"", ""horror movies"",
+                ""comedy movies"", ""Korean drama"", ""Disney Plus new releases"",
+                ""action movies"", ""documentary recommendations"", ""movie trailers""])
+            year = datetime.now().year
+            return f""{topic} {year}""
+        elif strategy == ""sports"":
+            topic = random.choice([""Premier League standings"", ""NBA scores today"", ""UFC results"",
+                ""Champions League"", ""Formula 1 race"", ""tennis rankings"",
+                ""World Cup"", ""Olympic games"", ""boxing results"",
+                ""golf tournament"", ""swimming records"", ""esports tournament""])
+            return topic
+        elif strategy == ""education"":
+            topic = random.choice([""learn Python programming"", ""free online courses"", ""study tips"",
+                ""best universities"", ""scholarship applications"", ""language learning apps"",
+                ""math practice online"", ""science experiments for kids"", ""history facts"",
+                ""coding bootcamp"", ""online degree programs"", ""exam preparation""])
+            return topic
+
+        return ""Microsoft Rewards tips""
+
+
+",""
+"Function:farm/points.py:get_search_quota","get_search_quota","farm/points.py",12,170,true,"
+
+def get_search_quota(driver):
+    """"""Read exact search quotas from rewards API.
+    
+    Returns dict with:
+        pc_progress, pc_max, pc_remaining_searches,
+        mobile_progress, mobile_max, mobile_remaining_searches,
+        points_per_search, inferred (bool)
+    Or None if API call completely fails.
+    """"""
+    import time
+    try:
+        current_url = driver.current_url
+        driver.get(""https://rewards.bing.com/api/getuserinfo?type=1"")
+        time.sleep(3)
+        
+        # Get JSON from page
+        page_text = driver.find_element(By.TAG_NAME, ""body"").text
+        if not page_text:
+            try:
+                page_text = driver.find_element(By.TAG_NAME, ""pre"").text
+            except:
+                pass
+        
+        if not page_text:
+            logging.warning(""[QUOTA] API returned empty response"")
+            return None
+        
+        data = json.loads(page_text)
+        dashboard = data.get('dashboard', {})
+        user_status = dashboard.get('userStatus', {})
+        
+        # Merge counters from BOTH paths (some accounts use different paths)
+        counters = {}
+        c1 = dashboard.get('counters', {})
+        c2 = user_status.get('counters', {})
+        if c1:
+            counters.update(c1)
+        if c2:
+            for k, v in c2.items():
+                if k not in counters:
+                    counters[k] = v
+        
+        logging.info(f""[QUOTA] Counter keys found: {list(counters.keys())}"")
+        
+        # Helper to extract counter entry
+        def get_counter(name):
+            c = counters.get(name, [])
+            if not c:
+                return None, None
+            entry = c[0] if isinstance(c, list) else c
+            return entry.get('pointProgress', 0), entry.get('pointProgressMax', 0)
+        
+        # User level & points
+        available_points = user_status.get('availablePoints', 0)
+        level = user_status.get('levelName', user_status.get('activeLevel', 'Unknown'))
+        
+        # Read all counters
+        pc_progress, pc_max = get_counter('pcSearch')
+        mobile_progress, mobile_max = get_counter('mobileSearch')
+        quiz_progress, quiz_max = get_counter('activityAndQuiz')
+        daily_progress, daily_max = get_counter('dailyPoint')
+        edge_progress, edge_max = get_counter('edgeSearch')
+        
+        inferred = False
+        
+        # === SMART INFERENCE when pcSearch is missing ===
+        if pc_max is None:
+            logging.warning(""[QUOTA] pcSearch counter MISSING! Inferring from level..."")
+            inferred = True
+            
+            # Determine level from dailyPoint max or available points
+            # Level 1 (Member): dailyPoint max ~200, PC max=30
+            # Level 2 (Silver+): dailyPoint max ~150, PC max=150, Mobile max=100
+            is_level2 = False
+            if daily_max is not None and daily_max <= 150 and daily_max > 0:
+                is_level2 = True
+            elif available_points >= 1000:
+                is_level2 = True
+            elif str(level).lower() in ('level 2', 'silver', 'gold', 'platinum'):
+                is_level2 = True
+            
+            if is_level2:
+                pc_progress, pc_max = 0, 150        # 30 searches × 5 pts
+                mobile_progress, mobile_max = 0, 100  # 20 searches × 5 pts
+                logging.info(f""[QUOTA] → Inferred Level 2+: PC=0/150, Mobile=0/100"")
+            else:
+                pc_progress, pc_max = 0, 30   # 10 searches × 3 pts
+                mobile_progress, mobile_max = 0, 0
+                logging.info(f""[QUOTA] → Inferred Level 1: PC=0/30, Mobile=N/A"")
+        
+        if mobile_max is None:
+            mobile_progress, mobile_max = 0, 0
+        
+        # Calculate points per search
+        pps = 5 if pc_max >= 150 else 3
+        
+        # Calculate remaining searches
+        pc_remaining = max(0, pc_max - (pc_progress or 0))
+        pc_remaining_searches = (pc_remaining + pps - 1) // pps if pps > 0 else 0
+        
+        mobile_remaining = max(0, mobile_max - (mobile_progress or 0))
+        mobile_remaining_searches = (mobile_remaining + pps - 1) // pps if pps > 0 else 0
+        
+        edge_remaining = max(0, (edge_max or 0) - (edge_progress or 0))
+        edge_remaining_searches = (edge_remaining + pps - 1) // pps if pps > 0 and edge_remaining > 0 else 0
+        
+        result = {
+            'pc_progress': pc_progress or 0,
+            'pc_max': pc_max,
+            'pc_remaining_searches': pc_remaining_searches,
+            'mobile_progress': mobile_progress or 0,
+            'mobile_max': mobile_max,
+            'mobile_remaining_searches': mobile_remaining_searches,
+            'points_per_search': pps,
+            'inferred': inferred,
+            'level': level,
+            'available_points': available_points,
+            'quiz_progress': quiz_progress or 0,
+            'quiz_max': q
+... [truncated]",""
+"Function:farm/points.py:get_counter","get_counter","farm/points.py",57,62,true,"        
+        # Helper to extract counter entry
+        def get_counter(name):
+            c = counters.get(name, [])
+            if not c:
+                return None, None
+            entry = c[0] if isinstance(c, list) else c
+            return entry.get('pointProgress', 0), entry.get('pointProgressMax', 0)
+        
+        # User level & points
+",""
+"Function:farm/points.py:check_logged_in","check_logged_in","farm/points.py",171,211,true,"            pass
+        return None
+def check_logged_in(driver):
+    """"""Check if user is signed in on the current page.""""""
+    try:
+        # Check for sign-in indicators
+        sign_in_selectors = [
+            ""a[href*='login.live.com']"",
+            ""a#id_s"",  # Sign-in link on Bing
+            ""a[href*='signup']"",
+            ""#id_n"",   # Sign-in name (means logged in)
+        ]
+        
+        # If we find sign-in name → logged in
+        try:
+            name_el = driver.find_element(By.CSS_SELECTOR, ""#id_n"")
+            if name_el:
+                return True
+        except:
+            pass
+        
+        # Check page for login redirect
+        current_url = driver.current_url
+        if ""login.live.com"" in current_url or ""signup"" in current_url:
+            return False
+        
+        # Check for ""Sign in"" text/buttons
+        try:
+            sign_in_btns = driver.find_elements(By.XPATH, 
+                ""//*[contains(text(), 'Sign in') or contains(text(), 'Đăng nhập')]"")
+            # Filter to only visible, prominent sign-in buttons
+            for btn in sign_in_btns:
+                if btn.is_displayed() and btn.tag_name in ('a', 'button', 'span'):
+                    text = btn.text.strip()
+                    if text in ('Sign in', 'Đăng nhập', 'Sign In'):
+                        return False
+        except:
+            pass
+        
+        # If no sign-in indicators found, assume logged in
+        return True
+    except:
+        return True  # Assume logged in on error
+
+
+",""
+"Function:farm/points.py:get_points_from_search_page","get_points_from_search_page","farm/points.py",214,243,true,"
+
+def get_points_from_search_page(driver):
+    """"""Get points from the Bing search page (inline check).""""""
+    # Try NEW UI first: #id_rh_w contains points in a span
+    try:
+        elm = driver.find_element(By.CSS_SELECTOR, ""#id_rh_w span"")
+        txt = elm.text.replace("","", """").replace(""."", """")
+        if txt.isdigit():
+            return int(txt)
+    except:
+        pass
+    
+    # Try OLD UI: #id_rc
+    try:
+        elm = driver.find_element(By.ID, ""id_rc"")
+        txt = elm.text.replace("","", """").replace(""."", """")
+        if txt.isdigit():
+            return int(txt)
+    except:
+        pass
+    
+    # Try aria-label approach for new UI
+    try:
+        elm = driver.find_element(By.CSS_SELECTOR, ""a[aria-label='Microsoft Rewards'] span"")
+        txt = elm.text.replace("","", """").replace(""."", """")
+        if txt.isdigit():
+            return int(txt)
+    except:
+        pass
+    
+    return None
+
+
+",""
+"Function:farm/points.py:get_current_points","get_current_points","farm/points.py",246,286,true,"
+
+def get_current_points(driver):
+    """"""Get points from the rewards dashboard page.""""""
+    try:
+        if ""rewards.bing.com"" not in driver.current_url:
+            driver.get(""https://rewards.bing.com/"")
+            random_sleep(3, 5)
+        
+        selectors = [
+            # === NEW UI selectors (accordion-based dashboard) ===
+            (By.CSS_SELECTOR, ""button[aria-label='View profile'] p""),
+            (By.CSS_SELECTOR, ""button[aria-label='View profile'] span""),
+            (By.XPATH, ""//button[contains(@aria-label, 'profile')]//p""),
+            (By.CSS_SELECTOR, ""#id_rh_w span""),
+            (By.CSS_SELECTOR, ""a[aria-label='Microsoft Rewards'] span""),
+            # === OLD UI selectors ===
+            (By.CSS_SELECTOR, ""mee-rewards-counter-animation span""),
+            (By.CSS_SELECTOR, ""p.pointsValue span""),
+            (By.ID, ""rewards-dashboard-count""),
+            (By.ID, ""id_rc""),
+            (By.CLASS_NAME, ""points-balance""),
+            (By.CSS_SELECTOR, ""#balanceTooltipDiv p""),
+            (By.XPATH, ""//div[contains(@class, 'points-balance')]""),
+            (By.XPATH, ""//span[contains(@class, 'number')]""),
+        ]
+        
+        for by, val in selectors:
+            try:
+                el = driver.find_element(by, val)
+                txt = el.text
+                digits = re.findall(r'\d+', txt)
+                if digits:
+                    points_str = """".join(digits)
+                    points = int(points_str)
+                    if points > 0:
+                        logging.info(f""[POINTS] Tìm thấy điểm: {points} (selector: {val})"")
+                        return points
+            except: pass
+            
+        return ""Unknown""
+    except:
+        return ""Error""
+",""
+"Function:farm/history.py:load_history","load_history","farm/history.py",10,18,true,"
+
+def load_history():
+    """"""Load points history from JSON file.""""""
+    try:
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except:
+        pass
+    return {""records"": []}
+
+
+",""
+"Function:farm/history.py:save_history","save_history","farm/history.py",21,27,true,"
+
+def save_history(data):
+    """"""Save points history to JSON file.""""""
+    try:
+        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f""Error saving history: {e}"")
+
+
+",""
+"Function:farm/history.py:log_points","log_points","farm/history.py",30,49,true,"
+
+def log_points(profile_name, points_before, points_after, farm_type=""full""):
+    """"""Log a farming session result.""""""
+    data = load_history()
+    record = {
+        ""date"": datetime.now().strftime(""%Y-%m-%d""),
+        ""time"": datetime.now().strftime(""%H:%M:%S""),
+        ""profile"": profile_name,
+        ""before"": points_before,
+        ""after"": points_after,
+        ""earned"": (points_after - points_before) if isinstance(points_before, int) and isinstance(points_after, int) else 0,
+        ""type"": farm_type
+    }
+    data[""records""].append(record)
+    
+    # Keep only last 90 days
+    cutoff = (datetime.now() - timedelta(days=90)).strftime(""%Y-%m-%d"")
+    data[""records""] = [r for r in data[""records""] if r.get(""date"", """") >= cutoff]
+    
+    save_history(data)
+    return record
+
+
+",""
+"Function:farm/history.py:get_today_stats","get_today_stats","farm/history.py",52,68,true,"
+
+def get_today_stats():
+    """"""Get today's stats grouped by profile.""""""
+    data = load_history()
+    today = datetime.now().strftime(""%Y-%m-%d"")
+    
+    stats = {}
+    for r in data.get(""records"", []):
+        if r.get(""date"") == today:
+            profile = r.get(""profile"", ""Unknown"")
+            if profile not in stats:
+                stats[profile] = {""earned"": 0, ""sessions"": 0, ""last_points"": 0}
+            stats[profile][""earned""] += r.get(""earned"", 0)
+            stats[profile][""sessions""] += 1
+            if isinstance(r.get(""after""), int):
+                stats[profile][""last_points""] = r[""after""]
+    
+    return stats
+
+
+",""
+"Function:farm/history.py:get_weekly_total","get_weekly_total","farm/history.py",71,80,true,"
+
+def get_weekly_total():
+    """"""Get total points earned in last 7 days.""""""
+    data = load_history()
+    week_ago = (datetime.now() - timedelta(days=7)).strftime(""%Y-%m-%d"")
+    
+    total = 0
+    for r in data.get(""records"", []):
+        if r.get(""date"", """") >= week_ago:
+            total += r.get(""earned"", 0)
+    return total
+
+
+",""
+"Function:farm/history.py:get_daily_totals","get_daily_totals","farm/history.py",83,98,true,"
+
+def get_daily_totals(days=14):
+    """"""Get daily totals for last N days.""""""
+    data = load_history()
+    
+    daily = {}
+    for i in range(days):
+        d = (datetime.now() - timedelta(days=i)).strftime(""%Y-%m-%d"")
+        daily[d] = 0
+    
+    for r in data.get(""records"", []):
+        date = r.get(""date"", """")
+        if date in daily:
+            daily[date] += r.get(""earned"", 0)
+    
+    # Return ordered list
+    return [(d, daily[d]) for d in sorted(daily.keys())]
+
+
+",""
+"Function:farm/history.py:was_farmed_today","was_farmed_today","farm/history.py",101,109,true,"
+
+def was_farmed_today(profile_name):
+    """"""Check if a profile has already been farmed today (earned > 0).""""""
+    data = load_history()
+    today = datetime.now().strftime(""%Y-%m-%d"")
+    for r in data.get(""records"", []):
+        if r.get(""date"") == today and r.get(""profile"") == profile_name:
+            if r.get(""earned"", 0) > 0:
+                return True
+    return False
+
+
+",""
+"Function:farm/history.py:get_profile_summary","get_profile_summary","farm/history.py",112,126,true,"
+
+def get_profile_summary():
+    """"""Get summary stats for each profile ever farmed.""""""
+    data = load_history()
+    summary = {}
+    for r in data.get(""records"", []):
+        profile = r.get(""profile"", ""Unknown"")
+        if profile not in summary:
+            summary[profile] = {""total_earned"": 0, ""sessions"": 0, ""last_date"": """", ""last_points"": 0}
+        summary[profile][""total_earned""] += r.get(""earned"", 0)
+        summary[profile][""sessions""] += 1
+        if r.get(""date"", """") >= summary[profile][""last_date""]:
+            summary[profile][""last_date""] = r.get(""date"", """")
+            if isinstance(r.get(""after""), int):
+                summary[profile][""last_points""] = r[""after""]
+    return summary
+
+
+",""
+"Function:farm/history.py:get_streak_days","get_streak_days","farm/history.py",129,149,true,"
+
+def get_streak_days():
+    """"""Get number of consecutive days with farming activity.""""""
+    data = load_history()
+    dates_with_earnings = set()
+    for r in data.get(""records"", []):
+        if r.get(""earned"", 0) > 0:
+            dates_with_earnings.add(r.get(""date"", """"))
+    
+    if not dates_with_earnings:
+        return 0
+    
+    streak = 0
+    check_date = datetime.now()
+    for _ in range(365):
+        date_str = check_date.strftime(""%Y-%m-%d"")
+        if date_str in dates_with_earnings:
+            streak += 1
+            check_date -= timedelta(days=1)
+        else:
+            break
+    return streak
+
+",""
+"Function:farm/driver.py:_install_driver_with_retry","_install_driver_with_retry","farm/driver.py",18,31,false,"
+
+def _install_driver_with_retry():
+    """"""Retry wrapper cho EdgeChromiumDriverManager""""""
+    from webdriver_manager.microsoft import EdgeChromiumDriverManager
+    last_error = None
+    for attempt in range(DRIVER_RETRY_ATTEMPTS):
+        try:
+            logging.info(f""Đang tải EdgeDriver (lần {attempt + 1}/{DRIVER_RETRY_ATTEMPTS})..."")
+            return EdgeChromiumDriverManager().install()
+        except Exception as e:
+            last_error = e
+            logging.warning(f""Lần {attempt + 1} thất bại: {e}"")
+            if attempt < DRIVER_RETRY_ATTEMPTS - 1:
+                time.sleep(DRIVER_RETRY_DELAY)
+    raise last_error
+
+
+",""
+"Function:farm/driver.py:get_edge_version","get_edge_version","farm/driver.py",34,44,true,"
+
+def get_edge_version():
+    """"""Auto-detect installed Edge version from registry.""""""
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                            r""Software\Microsoft\Edge\BLBeacon"")
+        version, _ = winreg.QueryValueEx(key, ""version"")
+        winreg.CloseKey(key)
+        return version
+    except:
+        return ""133.0.0.0""  # Fallback
+
+
+",""
+"Function:farm/driver.py:_kill_zombie_edge","_kill_zombie_edge","farm/driver.py",47,67,false,"
+
+def _kill_zombie_edge():
+    """"""Kill leftover msedge/msedgedriver processes from previous farming sessions.""""""
+    import subprocess
+    try:
+        # Kill msedgedriver first
+        subprocess.run(['taskkill', '/f', '/im', 'msedgedriver.exe'],
+                       capture_output=True, timeout=5)
+        time.sleep(1)
+        
+        # Kill automation Edge instances (those without main windows = zombie)
+        result = subprocess.run(
+            ['powershell', '-Command',
+             'Get-Process msedge -ErrorAction SilentlyContinue | '
+             'Where-Object {$_.MainWindowHandle -eq 0} | '
+             'Stop-Process -Force -ErrorAction SilentlyContinue'],
+            capture_output=True, timeout=10
+        )
+        time.sleep(2)
+        logging.info(""[CLONE] Cleaned up zombie Edge processes"")
+    except Exception as e:
+        logging.debug(f""[CLONE] Cleanup note: {e}"")
+
+
+",""
+"Function:farm/driver.py:clone_edge_profile","clone_edge_profile","farm/driver.py",70,147,true,"
+
+def clone_edge_profile(profile_path):
+    """"""Clone essential Edge profile files to temp folder with proper User Data structure.""""""
+    profile_name = os.path.basename(profile_path)
+    base_clone_dir = os.path.join(tempfile.gettempdir(), f""MSR_Clone_{profile_name.replace(' ', '_')}"")
+    
+    # Clean old clone first to avoid stale data
+    if os.path.exists(base_clone_dir):
+        shutil.rmtree(base_clone_dir, ignore_errors=True)
+    
+    dest_profile_dir = os.path.join(base_clone_dir, profile_name)
+    
+    # Critical files that MUST be copied for login to work
+    critical_files = ['Cookies', 'Login Data', 'Login Data For Account', 'Web Data']
+    # Journal and preference files - nice to have
+    extra_files = [
+        'Cookies-journal', 'Login Data-journal',
+        'Login Data For Account-journal', 'Web Data-journal',
+        'Preferences', 'Secure Preferences',
+    ]
+    # Newer Edge Network subfolder
+    network_files = ['Network/Cookies', 'Network/Cookies-journal']
+    
+    try:
+        os.makedirs(dest_profile_dir, exist_ok=True)
+        os.makedirs(os.path.join(dest_profile_dir, 'Network'), exist_ok=True)
+        
+        all_files = critical_files + extra_files + network_files
+        copied = 0
+        failed_critical = []
+        
+        # First attempt
+        for f in all_files:
+            src = os.path.normpath(os.path.join(profile_path, f))
+            dest = os.path.normpath(os.path.join(dest_profile_dir, f))
+            if not os.path.exists(src):
+                continue
+            try:
+                shutil.copy2(src, dest)
+                copied += 1
+            except PermissionError:
+                if os.path.basename(f) in [os.path.basename(c) for c in critical_files]:
+                    failed_critical.append(f)
+            except Exception:
+                pass
+        
+        # If critical files failed, kill zombies and retry
+        if failed_critical:
+            logging.info(f""[CLONE] Critical files locked, killing zombie Edge processes..."")
+            _kill_zombie_edge()
+            
+            for f in failed_critical[:]:
+                src = os.path.normpath(os.path.join(profile_path, f))
+                dest = os.path.normpath(os.path.join(dest_profile_dir, f))
+                try:
+                    shutil.copy2(src, dest)
+                    copied += 1
+                    failed_critical.remove(f)
+                except Exception:
+                    pass
+        
+        # Copy Local State
+        local_state_src = os.path.join(os.path.dirname(profile_path), 'Local State')
+        if os.path.exists(local_state_src):
+            try:
+                shutil.copy2(local_state_src, os.path.join(base_clone_dir, 'Local State'))
+            except Exception:
+                pass
+        
+        if failed_critical:
+            logging.error(f""[CLONE] CRITICAL files still locked for '{profile_name}': {[os.path.basename(f) for f in failed_critical]}"")
+            logging.error(f""[CLONE] Hãy đóng Edge browser rồi thử lại!"")
+            return None, None
+        
+        logging.info(f""[CLONE] Profile '{profile_name}' cloned OK ({copied} files)"")
+        return base_clone_dir, profile_name
+    except Exception as e:
+        logging.error(f""[CLONE] Failed to clone profile: {e}"")
+        return None, None
+
+
+",""
+"Function:farm/driver.py:setup_driver","setup_driver","farm/driver.py",150,311,true,"
+
+def setup_driver(profile_path, is_mobile=False, headless=True):
+    options = Options()
+    
+    # Auto-detect Edge version for UA
+    edge_version = get_edge_version()
+    
+    # Auto-detect Edge User Data profiles vs custom profiles
+    edge_user_data_marker = os.path.join('Microsoft', 'Edge', 'User Data')
+    if edge_user_data_marker in profile_path:
+        base_dir, prof_name = clone_edge_profile(profile_path)
+        if base_dir and prof_name:
+            options.add_argument(f""user-data-dir={base_dir}"")
+            options.add_argument(f""profile-directory={prof_name}"")
+        else:
+            user_data_dir = os.path.dirname(profile_path)
+            profile_dir = os.path.basename(profile_path)
+            options.add_argument(f""user-data-dir={user_data_dir}"")
+            options.add_argument(f""profile-directory={profile_dir}"")
+    else:
+        options.add_argument(f""user-data-dir={profile_path}"")
+        options.add_argument(f""profile-directory={PROFILE_DIRECTORY}"")
+    
+    if headless:
+        options.add_argument(""--headless"") 
+    
+    # === ANTI-DETECTION ===
+    options.add_argument(""--disable-blink-features=AutomationControlled"")
+    options.add_experimental_option(""excludeSwitches"", [""enable-automation""])
+    options.add_experimental_option('useAutomationExtension', False)
+    options.add_argument(""--no-sandbox"")
+    options.add_argument(""--disable-gpu"")
+    options.add_argument(""--disable-notifications"")
+    options.add_argument(""--mute-audio"")
+    options.add_argument(""--log-level=3"")
+    options.add_argument(""--disable-webrtc"")
+    options.add_argument(""--disable-features=WebRtcHideLocalIpsWithMdns"")
+    options.add_argument(""--disable-reading-from-canvas"")
+    options.add_argument(""--disable-3d-apis"")
+    
+    # === RAM & RESOURCE OPTIMIZATION (Low-spec friendly) ===
+    options.add_argument(""--disable-extensions"")
+    options.add_argument(""--disable-plugins-discovery"")
+    options.add_argument(""--disable-default-apps"")
+    options.add_argument(""--disable-component-update"")
+    options.add_argument(""--disable-background-networking"")
+    options.add_argument(""--disable-sync"")
+    options.add_argument(""--disable-translate"")
+    options.add_argument(""--disable-hang-monitor"")
+    options.add_argument(""--disable-popup-blocking"")
+    options.add_argument(""--disable-prompt-on-repost"")
+    options.add_argument(""--disable-renderer-backgrounding"")
+    options.add_argument(""--disable-backgrounding-occluded-windows"")
+    options.add_argument(""--disable-ipc-flooding-protection"")
+    options.add_argument(""--disable-client-side-phishing-detection"")
+    options.add_argument(""--no-first-run"")
+    options.add_argument(""--no-default-browser-check"")
+    
+    # === AGGRESSIVE RAM SAVING ===
+    options.add_argument(""--renderer-process-limit=1"")         # 1 renderer only
+    options.add_argument(""--js-flags=--max-old-space-size=64"") # V8 heap 64MB (was 128)
+    options.add_argument(""--disable-software-rasterizer"")      # No software rendering
+    options.add_argument(""--disable-smooth-scrolling"")         # Less animation
+    options.add_argument(""--disable-logging"")                  # Less I/O
+    options.add_argument(""--disable-breakpad"")                 # No crash reporter
+    options.add_argument(""--disable-features=TranslateUI,BlinkGenPropertyTrees,AudioServiceOutOfProcess,MediaRouter"")
+    options.add_argument(""--disable-shared-workers"")           # No shared workers
+    options.add_argument(""--disable-domain-reliability"")       # No telemetry
+    options.add_argument(""--disable-component-extensions-with-background-pages"")
+    options.add_argument(""--aggressive-cache-discard"")         # Free cache aggressively
+    options.add_argument(""--memory-pressure-off"")              # Don't preload
+    options.add_argument(""--process-per-site"")                 # Share renderers per-site (stable RAM save)
+    options.add_argument(""--window-size=800,600"" if not is_mobile else ""--window-size=412,915"")
+    
+    # Block images/fonts/media in headless to save RAM & bandwidth
+    if headless:
+        prefs = {
+            ""profile.managed_default_content_settings.images"": 2,
+            ""profile.default_content_setting_values.images"": 2,
+            ""profile.managed_default_content_settings.stylesheets"": 2,
+            ""profile.managed_default_content_settings.fonts"": 2,
+            ""profile.managed_default_content_settings.media_stream"": 2,
+            ""disk-cache-size"": 1,
+        }
+        options.add_experimental_option(""prefs"", prefs)
+    
+    if is_mobile:
+        mobile_ua = f""Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{edge_version} Mobile Safari/537.36 EdgA/{edge_version}""
+        options.add_argument(f""user-agent={mobile_ua}"")
+    else:
+        options.add_argument(f""user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{edge_versi
+... [truncated]",""
+"Function:farm/driver.py:get_driver","get_driver","farm/driver.py",315,326,true,"
+@contextmanager
+def get_driver(profile_path, is_mobile=False, headless=True):
+    """"""Context manager để đảm bảo driver.quit()""""""
+    driver = setup_driver(profile_path, is_mobile, headless)
+    try:
+        yield driver
+    finally:
+        if driver:
+            try:
+                driver.quit()
+                logging.info(""Driver đã được đóng sạch."")
+            except Exception as e:
+                logging.warning(f""Lỗi khi đóng driver: {e}"")
+
+
+",""
+"Function:farm/driver.py:is_driver_alive","is_driver_alive","farm/driver.py",329,335,true,"
+
+def is_driver_alive(driver):
+    """"""Kiểm tra driver còn sống không""""""
+    try:
+        driver.current_url
+        return True
+    except:
+        return False
+
+
+",""
+"Function:farm/driver.py:safe_driver_quit","safe_driver_quit","farm/driver.py",338,344,true,"
+
+def safe_driver_quit(driver):
+    """"""Đóng driver an toàn""""""
+    if driver:
+        try:
+            driver.quit()
+        except:
+            pass
+
+
+",""
+"Function:farm/driver.py:cleanup_clone_profiles","cleanup_clone_profiles","farm/driver.py",347,361,true,"
+
+def cleanup_clone_profiles():
+    """"""Remove temporary cloned profile files.""""""
+    temp_dir = tempfile.gettempdir()
+    try:
+        count = 0
+        for item in os.listdir(temp_dir):
+            if item.startswith(""MSR_Clone_"") or item == ""MSRewards_Clone"": # including old ones
+                clone_path = os.path.join(temp_dir, item)
+                if os.path.isdir(clone_path):
+                    shutil.rmtree(clone_path, ignore_errors=True)
+                    count += 1
+        if count > 0:
+            logging.info(f""[CLEANUP] Removed {count} temp clone folder(s)."")
+    except Exception as e:
+        logging.warning(f""[CLEANUP] Failed to remove temp files: {e}"")
+
+",""
+"Function:farm/activities.py:_is_new_ui","_is_new_ui","farm/activities.py",14,41,false,"
+
+def _is_new_ui(driver):
+    """"""Detect if the dashboard is using the new accordion-based UI.""""""
+    # New UI has accordion buttons with aria-labels like ""Daily set"", ""Your activity""
+    new_ui_indicators = [
+        ""button[aria-label='Daily set']"",
+        ""button[aria-label='Your activity']"",
+        ""button[aria-label='Achievements']"",
+    ]
+    for selector in new_ui_indicators:
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            if elements:
+                logging.info(""[ACTIVITIES] Phát hiện UI MỚI (accordion-based)"")
+                return True
+        except:
+            pass
+    
+    # Also check for ""See more tasks"" text which is unique to new UI
+    try:
+        elements = driver.find_elements(By.XPATH, ""//*[contains(text(), 'See more tasks')]"")
+        if elements:
+            logging.info(""[ACTIVITIES] Phát hiện UI MỚI (See more tasks)"")
+            return True
+    except:
+        pass
+    
+    logging.info(""[ACTIVITIES] Sử dụng UI CŨ (mee-rewards)"")
+    return False
+
+
+",""
+"Function:farm/activities.py:_expand_new_ui_sections","_expand_new_ui_sections","farm/activities.py",44,98,false,"
+
+def _expand_new_ui_sections(driver):
+    """"""Expand all accordion sections in the new UI.""""""
+    # Try multiple possible section names (UI changes labels over time)
+    sections = [
+        ""Daily set"", ""Your activity"", ""Achievements"",
+        ""Your progress"", ""More activities"", ""More promotions"",
+    ]
+    expanded = 0
+    
+    for section_name in sections:
+        try:
+            btn = driver.find_element(By.CSS_SELECTOR, f""button[aria-label='{section_name}']"")
+            # Check if already expanded
+            is_expanded = btn.get_attribute(""aria-expanded"")
+            if is_expanded == ""false"" or is_expanded is None:
+                driver.execute_script(""arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});"", btn)
+                time.sleep(0.5)
+                driver.execute_script(""arguments[0].click();"", btn)
+                time.sleep(random.uniform(1, 2))
+                expanded += 1
+                logging.info(f""   [NEW UI] Expanded: {section_name}"")
+        except:
+            pass
+    
+    # Fallback: find ALL buttons with aria-expanded=""false"" and expand them
+    if expanded == 0:
+        try:
+            buttons = driver.find_elements(By.CSS_SELECTOR, ""button[aria-expanded='false']"")
+            for btn in buttons:
+                try:
+                    label = btn.get_attribute(""aria-label"") or btn.text
+                    driver.execute_script(""arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});"", btn)
+                    time.sleep(0.5)
+                    driver.execute_script(""arguments[0].click();"", btn)
+                    time.sleep(random.uniform(1, 2))
+                    expanded += 1
+                    logging.info(f""   [NEW UI] Expanded (fallback): {label}"")
+                except:
+                    pass
+        except:
+            pass
+    
+    # Also click ""See more tasks"" if visible
+    try:
+        see_more = driver.find_elements(By.XPATH, ""//*[contains(text(), 'See more tasks')]"")
+        for btn in see_more:
+            if btn.is_displayed():
+                driver.execute_script(""arguments[0].click();"", btn)
+                time.sleep(1)
+                logging.info(""   [NEW UI] Clicked 'See more tasks'"")
+                break
+    except:
+        pass
+    
+    return expanded
+
+
+",""
+"Function:farm/activities.py:_get_new_ui_task_cards","_get_new_ui_task_cards","farm/activities.py",101,183,false,"
+
+def _get_new_ui_task_cards(driver):
+    """"""Get all task cards from the new UI after expanding sections.""""""
+    cards = []
+    seen_texts = set()
+    
+    # Progress button keywords — these are NOT task cards, they open modals
+    progress_keywords = [""search:"", ""activity:"", ""check-in:"", ""how to activate"", ""check in:""]
+    # X/X completion pattern (e.g. ""3/3"", ""7/7"")
+    import re as _re
+    _xofx_pat = _re.compile(r'(\d+)/(\d+)')
+
+    def _is_progress_complete(text: str) -> bool:
+        """"""Check if progress text shows X/X = fully completed.""""""
+        for num, denom in _xofx_pat.findall(text):
+            if num == denom and int(num) > 0:
+                return True
+        return False
+
+    def _is_progress_card(el):
+        """"""Check if element is a progress tracking button (not a clickable task).""""""
+        try:
+            tag = el.tag_name.lower()
+            text = (el.text or """").lower()
+            # <button> elements with progress keywords are trackers, not tasks
+            if tag == 'button' and any(kw in text for kw in progress_keywords):
+                return True
+            # <div> streak cards showing X/X (already completed) — skip them
+            if tag == 'div' and _is_progress_complete(text):
+                return True
+        except:
+            pass
+        return False
+
+    
+    # Primary: Find elements with 'CardRewards' in class name
+    # Actual DOM class: ""mai:rounded-cornerCardRewards""
+    # This matches both <a> task cards AND <button> progress cards, so filter
+    try:
+        elements = driver.find_elements(By.CSS_SELECTOR, ""[class*='CardRewards']"")
+        for el in elements:
+            if _is_progress_card(el):
+                continue
+            text = (el.text or """").strip()[:60]
+            if text and text not in seen_texts:
+                seen_texts.add(text)
+                cards.append(el)
+                logging.info(f""   [CARDS] Found: <{el.tag_name}> {text[:40]}"")
+    except:
+        pass
+    
+    # Secondary: Find cards by looking inside Daily set section specifically
+    if not cards:
+        try:
+            daily_btn = driver.find_element(By.CSS_SELECTOR, ""button[aria-label='Daily set']"")
+            # Navigate up to section container
+            container = daily_btn.find_element(By.XPATH, ""./.."")
+            children = container.find_elements(By.CSS_SELECTOR, ""a[href]"")
+            for child in children:
+                text = (child.text or """").strip()[:60]
+                href = child.get_attribute(""href"") or """"
+                if text and text not in seen_texts and ""dashboard"" not in href:
+                    seen_texts.add(text)
+                    cards.append(child)
+        except:
+            pass
+    
+    # Tertiary fallback: find ANY <a> or <div> containing point values (NOT buttons)
+    if not cards:
+        try:
+            point_xpath = ""//*[contains(text(), '+10') or contains(text(), '+5') or contains(text(), '+30')]""
+            all_elements = driver.find_elements(By.XPATH, point_xpath)
+            for el in all_elements:
+                tag = el.tag_name.lower()
+                if tag in ('a', 'div'):  # Exclude <button> — those are progress cards
+                    text = (el.text or """").strip()[:60]
+                    if text and len(text) > 5 and text not in seen_texts:
+                        seen_texts.add(text)
+                        cards.append(el)
+        except:
+            pass
+    
+    logging.info(f""[CARDS] Total task cards found: {len(cards)}"")
+    return cards
+
+
+",""
+"Function:farm/activities.py:_is_progress_complete","_is_progress_complete","farm/activities.py",112,117,false,"    _xofx_pat = _re.compile(r'(\d+)/(\d+)')
+
+    def _is_progress_complete(text: str) -> bool:
+        """"""Check if progress text shows X/X = fully completed.""""""
+        for num, denom in _xofx_pat.findall(text):
+            if num == denom and int(num) > 0:
+                return True
+        return False
+
+    def _is_progress_card(el):
+",""
+"Function:farm/activities.py:_is_progress_card","_is_progress_card","farm/activities.py",119,132,false,"        return False
+
+    def _is_progress_card(el):
+        """"""Check if element is a progress tracking button (not a clickable task).""""""
+        try:
+            tag = el.tag_name.lower()
+            text = (el.text or """").lower()
+            # <button> elements with progress keywords are trackers, not tasks
+            if tag == 'button' and any(kw in text for kw in progress_keywords):
+                return True
+            # <div> streak cards showing X/X (already completed) — skip them
+            if tag == 'div' and _is_progress_complete(text):
+                return True
+        except:
+            pass
+        return False
+
+    
+",""
+"Function:farm/activities.py:_is_card_completed_new_ui","_is_card_completed_new_ui","farm/activities.py",186,217,false,"
+
+def _is_card_completed_new_ui(card):
+    """"""Check if a new UI card is already completed.""""""
+    import re
+    try:
+        card_html = card.get_attribute(""outerHTML"") or """"
+        card_text = (card.text or """").lower()
+        
+        # 1. Check HTML for checkmark/completion icons
+        completed_indicators = [""\u2713"", ""check"", ""completed"", ""Completed"", ""SkypeCircleCheck""]
+        for indicator in completed_indicators:
+            if indicator in card_html:
+                return True
+        
+        # 2. Check aria attributes
+        aria_label = card.get_attribute(""aria-label"") or """"
+        if ""completed"" in aria_label.lower() or ""done"" in aria_label.lower():
+            return True
+        
+        # 3. Check progress X/X patterns — e.g. ""search: 3/3"", ""activity: 2/2""
+        #    If the progress numerator == denominator, the task is complete
+        xofx_matches = re.findall(r'(\d+)/(\d+)', card_text)
+        for num, denom in xofx_matches:
+            if num == denom and int(num) > 0:
+                return True
+        
+        # 4. Check for ""Nice work"" text that appears on completed streak cards
+        if ""nice work"" in card_text:
+            return True
+            
+    except:
+        pass
+    return False
+
+
+",""
+"Function:farm/activities.py:solve_potential_quiz","solve_potential_quiz","farm/activities.py",220,247,true,"
+
+def solve_potential_quiz(driver):
+    try:
+        start_btns = driver.find_elements(By.XPATH, ""//input[@value='Start playing'] | //span[contains(@class, 'rq_button')]"")
+        if start_btns:
+            logging.info(""   -> Phát hiện Quiz/Poll, bấm Start..."")
+            try:
+                driver.execute_script(""arguments[0].click();"", start_btns[0])
+                time.sleep(3)
+            except: pass
+
+        for step in range(15): 
+            options = driver.find_elements(By.CSS_SELECTOR, "".btOption, .rq_option, .wk_OptionClick, .b_cards, #currentQuestionContainer .b_answer"")
+            if not options:
+                if step == 0: continue 
+                else: break
+            
+            try:
+                choice = random.choice(options)
+                driver.execute_script(""arguments[0].click();"", choice)
+                time.sleep(random.uniform(2, 4))
+                
+                if driver.find_elements(By.CSS_SELECTOR, "".btPollResult, .cico""):
+                    logging.info(""   -> Quiz/Poll hoàn thành."")
+                    break
+            except:
+                pass
+    except:
+        pass
+
+
+",""
+"Function:farm/activities.py:click_daily_checkin","click_daily_checkin","farm/activities.py",250,338,true,"
+
+def click_daily_checkin(driver):
+    """"""Click daily streak check-in button on rewards dashboard.""""""
+    logging.info(""[CHECKIN] Đang điểm danh daily streak..."")
+    try:
+        driver.get(""https://rewards.bing.com/"")
+        random_sleep(4, 6)
+        
+        # Scroll to see streak section
+        driver.execute_script(""window.scrollTo(0, 300);"")
+        time.sleep(1)
+        
+        # Try multiple selectors for the streak/check-in card
+        streak_selectors = [
+            # Streak card button
+            ""mee-rewards-daily-set-item-content a[href*='streak']"",
+            # Daily check-in button
+            ""#daily-sets mee-rewards-daily-set-item-content a"",
+            # Streak bonus card
+            ""a[data-bi-id*='Streak']"",
+            ""a[data-bi-id*='streak']"",
+            # General daily set first item (usually check-in)
+            ""mee-rewards-daily-set-section mee-rewards-daily-set-item-content:first-child a"",
+            # Keep streak alive card
+            "".c-card-content a[href*='rewards']"",
+            # Lightbox streak
+            ""#streak-banner a"",
+        ]
+        
+        clicked = False
+        for selector in streak_selectors:
+            try:
+                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                for el in elements:
+                    text = el.text.lower()
+                    # Look for streak-related text
+                    if any(k in text for k in ['streak', 'điểm danh', 'check', 'day', 'ngày', 'bonus']):
+                        driver.execute_script(""arguments[0].scrollIntoView({behavior:'smooth', block:'center'});"", el)
+                        time.sleep(1)
+                        driver.execute_script(""arguments[0].click();"", el)
+                        logging.info(f""[CHECKIN] ✅ Đã click điểm danh: '{text[:40]}'"")
+                        clicked = True
+                        break
+                if clicked:
+                    break
+            except:
+                continue
+        
+        if not clicked:
+            # Fallback: click the first uncompleted daily set item (usually check-in)
+            try:
+                daily_items = driver.find_elements(By.CSS_SELECTOR, ""mee-rewards-daily-set-item-content"")
+                for item in daily_items:
+                    try:
+                        item.find_element(By.CSS_SELECTOR, "".mee-icon-SkypeCircleCheck"")
+                        continue  # Already completed
+                    except:
+                        pass
+                    # This is uncompleted - click it
+                    link = item.find_element(By.TAG_NAME, ""a"")
+                    driver.execute_script(""arguments[0].click();"", link)
+                    logging.info(""[CHECKIN] ✅ Đã click daily set item đầu tiên chưa hoàn thành"")
+                    clicked = True
+                    break
+            except:
+                pass
+        
+        if clicked:
+            time.sleep(random.uniform(3, 5))
+            # Handle new tab
+            all_windows = driver.window_handles
+            main_window = all_windows[0]
+            if len(all_windows) > 1:
+                for w in all_windows[1:]:
+                    try:
+                        driver.switch_to.window(w)
+                        time.sleep(2)
+                        driver.close()
+                    except:
+                        pass
+                driver.switch_to.window(main_window)
+            else:
+                driver.back()
+                time.sleep(2)
+        
+        if not clicked:
+            logging.info(""[CHECKIN] Không tìm thấy nút điểm danh (có thể đã điểm danh rồi)"")
+            
+    except Exception as e:
+        logging.warning(f""[CHECKIN] Lỗi: {e}"")
+
+
+",""
+"Function:farm/activities.py:_complete_new_ui","_complete_new_ui","farm/activities.py",341,549,false,"
+
+def _complete_new_ui(driver):
+    """"""Handle activities for the NEW accordion-based UI.
+    
+    Uses re-fetch pattern: after each card navigation, re-fetches all cards
+    from the DOM to avoid stale element errors.
+    """"""
+    logging.info(""[ACTIVITIES] === Xử lý UI MỚI ==="")
+    
+    # Step 1: Expand all sections
+    _expand_new_ui_sections(driver)
+    random_sleep(1, 2)
+    
+    # Step 2: Get initial card count
+    cards = _get_new_ui_task_cards(driver)
+    total_cards = len(cards)
+    logging.info(f""[ACTIVITIES] Tìm thấy {total_cards} task cards (UI mới)"")
+    
+    if total_cards == 0:
+        logging.warning(""[ACTIVITIES] Không tìm thấy task cards nào trong UI mới."")
+        return
+    
+    main_window = driver.current_window_handle
+    processed_texts = set()  # Track processed cards by text content
+    processed_count = 0
+    max_iterations = total_cards * 2 + 15  # Safety limit: each card max 2 attempts
+    iteration = 0
+    no_new_card_streak = 0  # Count consecutive iterations with no new card found
+    ACTIVITIES_MAX_TIME = 600  # 10 minutes max for entire activities phase
+    start_time = time.time()
+    
+    while iteration < max_iterations:
+        iteration += 1
+        
+        # Hard timeout: activities không nên mất quá 10 phút
+        if time.time() - start_time > ACTIVITIES_MAX_TIME:
+            logging.warning(f""[NEW UI] ⏰ Timeout {ACTIVITIES_MAX_TIME}s! Dừng activities sớm. Đã xử lý {processed_count} items."")
+            break
+        
+        # === RE-FETCH cards from DOM every iteration ===
+        try:
+            cards = _get_new_ui_task_cards(driver)
+        except Exception as e:
+            logging.warning(f""[NEW UI] Lỗi re-fetch cards: {e}"")
+            # Try to navigate back and retry
+            try:
+                driver.get(""https://rewards.bing.com/"")
+                random_sleep(3, 5)
+                _expand_new_ui_sections(driver)
+                random_sleep(1, 2)
+                cards = _get_new_ui_task_cards(driver)
+            except:
+                logging.error(""[NEW UI] Không thể recovery. Dừng xử lý activities."")
+                break
+        
+        if not cards:
+            logging.info(""[NEW UI] Không còn cards nào. Hoàn tất."")
+            break
+        
+        # Find the next unprocessed, incomplete card
+        found_card = False
+        for card in cards:
+            try:
+                card_text = """"
+                try:
+                    card_text = card.text.replace(""\n"", "" "").strip()[:80]
+                except:
+                    continue  # Can't read text = skip
+                
+                # Skip if already processed (by text)
+                if card_text in processed_texts or not card_text:
+                    continue
+                
+                # Skip completed cards
+                if _is_card_completed_new_ui(card):
+                    processed_texts.add(card_text)
+                    continue
+                
+                # === Found an incomplete, unprocessed card ===
+                found_card = True
+                processed_count += 1
+                logging.info(f""[NEW UI] Item {processed_count}/{total_cards}: {card_text[:60]}"")
+                
+                # Scroll to and click the card
+                driver.execute_script(""arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});"", card)
+                time.sleep(random.uniform(0.5, 1))
+                
+                # For <div> cards, try to find and click a child <a> link first
+                click_target = card
+                try:
+                    if card.tag_name.lower() != 'a':
+                        child_links = card.find_elements(By.TAG_NAME, ""a"")
+                        if child_links:
+                            click_target = child_links[0]
+                except:
+                    pass
+                
+                try:
+                    click_target.click()
+                except:
+                    try:
+                        driver.execute_script(""arguments[0].click();"", click_target)
+                    except Exception as click_err:
+                        logging.warning(f""[NEW UI] Click failed: {click_err}"")
+                        processed_texts.add(card_text)
+                        break  # Re-fetch and try next
+                
+                # Mark as processed BEFORE navigating
+                processed_texts.add(card_text)
+                
+                time.sleep(random.uniform(5, 8))
+                
+                # Handle new tab or same-tab navigation
+                all_windows = driver.window_handles
+                if len(all_windows) > 1:
+                    for window in all_windows:
+                        if window != main_window:
+                            try:
+                                driver.switch_to.window(window)
+                                logging.info(""
+... [truncated]",""
+"Function:farm/activities.py:_complete_old_ui","_complete_old_ui","farm/activities.py",552,651,false,"
+
+def _complete_old_ui(driver):
+    """"""Handle activities for the OLD mee-rewards-based UI.""""""
+    logging.info(""[ACTIVITIES] === Xử lý UI CŨ ==="")
+    
+    selectors = [
+        ""mee-rewards-daily-set-item-content"",
+        ""mee-rewards-more-activities-card-item"",
+        ""mee-rewards-banner-card-content""
+    ]
+    combined_selector = "", "".join(selectors)
+
+    try:
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, combined_selector)))
+    except:
+        logging.warning(""[ACTIVITIES] Không tìm thấy hoạt động nào (UI cũ)."")
+        return
+
+    cards = driver.find_elements(By.CSS_SELECTOR, combined_selector)
+    total_cards = len(cards)
+    logging.info(f""[ACTIVITIES] Tìm thấy tổng cộng {total_cards} thẻ nhiệm vụ (UI cũ)."")
+    
+    main_window = driver.current_window_handle
+    
+    for index in range(total_cards):
+        try:
+            cards = driver.find_elements(By.CSS_SELECTOR, combined_selector)
+            if index >= len(cards): break
+            current_card = cards[index]
+
+            is_completed = False
+            try:
+                current_card.find_element(By.CSS_SELECTOR, "".mee-icon-SkypeCircleCheck"")
+                is_completed = True
+            except: pass
+            
+            if is_completed: continue
+            
+            logging.info(f""Item {index+1}: Chưa hoàn thành, đang thực hiện..."")
+            
+            try:
+                link = current_card.find_element(By.TAG_NAME, ""a"")
+            except:
+                link = current_card 
+            
+            driver.execute_script(""arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});"", link)
+            time.sleep(random.uniform(1, 2))
+            
+            try:
+                link.click()
+            except:
+                logging.warning(f""   -> Click thường thất bại, thử JS Click cho Item {index+1}..."")
+                driver.execute_script(""arguments[0].click();"", link)
+                
+            time.sleep(random.uniform(5, 8))
+            
+            all_windows = driver.window_handles
+            if len(all_windows) > 1:
+                for window in all_windows:
+                    if window != main_window:
+                        try:
+                            driver.switch_to.window(window)
+                            logging.info("" -> Đang xem trang hoạt động..."")
+                            
+                            solve_potential_quiz(driver)
+                            human_scroll(driver)
+                            time.sleep(random.uniform(5, 12))
+                            
+                            try:
+                                driver.execute_script(""window.close();"")
+                                time.sleep(0.5)
+                            except:
+                                try:
+                                    driver.close()
+                                except Exception as close_err:
+                                    err_msg = str(close_err).split('\n')[0][:80]
+                                    logging.warning(f""Window close failed: {err_msg}"")
+                        except Exception as win_err:
+                            logging.warning(f""Lỗi xử lý cửa sổ phụ: {win_err}"")
+                try:
+                    driver.switch_to.window(main_window)
+                except Exception as switch_err:
+                    logging.error(f""Không thể quay lại cửa sổ chính: {switch_err}"")
+                    try:
+                        remaining = driver.window_handles
+                        if remaining:
+                            driver.switch_to.window(remaining[0])
+                    except:
+                        raise Exception(""Session bị mất hoàn toàn"")
+            else:
+                logging.info("" -> Trang load tại chỗ, quay lại Dashboard sau 5s..."")
+                solve_potential_quiz(driver)
+                time.sleep(5)
+                driver.back()
+                random_sleep(3, 5)
+            
+        except Exception as e:
+            logging.error(f""Lỗi khi xử lý item {index+1}: {e}"")
+            if driver.current_window_handle == main_window and ""rewards.bing.com"" not in driver.current_url:
+                driver.back()
+                random_sleep(3, 5)
+
+
+",""
+"Function:farm/activities.py:complete_daily_set_and_activities","complete_daily_set_and_activities","farm/activities.py",654,683,true,"
+
+def complete_daily_set_and_activities(driver):
+    logging.info(""[ACTIVITIES] Đang kiểm tra Daily Set và More Activities..."")
+    try:
+        # Always click daily check-in first
+        click_daily_checkin(driver)
+        
+        try:
+            driver.get(""https://rewards.bing.com/"")
+        except Exception as nav_err:
+            logging.warning(f""[ACTIVITIES] Lỗi navigation: {nav_err}"")
+        random_sleep(5, 8)
+        
+        # Auto-F5 if rewards page loaded with error
+        check_and_recover_oom(driver, ""activities rewards page"")
+        
+        human_scroll(driver)
+        driver.execute_script(""window.scrollTo(0, document.body.scrollHeight);"")
+        random_sleep(2, 4)
+        driver.execute_script(""window.scrollTo(0, 0);"")
+        random_sleep(1, 2)
+
+        # Auto-detect UI version and use appropriate handler
+        if _is_new_ui(driver):
+            _complete_new_ui(driver)
+        else:
+            _complete_old_ui(driver)
+                
+    except Exception as e:
+        logging.error(f""[ACTIVITIES] Lỗi chung: {e}"")
+        take_screenshot(driver, ""activities_global_error"")
+",""

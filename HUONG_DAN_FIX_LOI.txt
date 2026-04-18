@@ -1,0 +1,26 @@
+=== HƯỚNG DẪN KHẮC PHỤC LỖI KẾT NỐI & DRIVER ===
+
+Hiện tại máy tính của bạn không thể kết nối tới server tải Driver của Microsoft (Lỗi DNS/Mạng).
+Để tool chạy được, bạn cần làm thủ công các bước sau:
+
+BƯỚC 1: Tải Driver thủ công
+1. Vào trang: https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/
+2. Tìm phiên bản Edge hiện tại của bạn: 144.0.3719.104
+   (Hoặc tải bản gần nhất với số này)
+3. Chọn bản "x64".
+4. Tải file zip về.
+
+Bước 2: Cài đặt Driver
+1. Giải nén file zip vừa tải.
+2. Lấy file "msedgedriver.exe".
+3. Copy file đó vào thư mục tool hiện tại: e:\MSrequat\
+
+Bước 3: Đóng sạch Edge
+1. Mở Task Manager (Ctrl + Shift + Esc).
+2. Tìm "Microsoft Edge" -> Click chuột phải -> End Task.
+3. Đảm bảo không còn icon Edge nào chạy ngầm.
+
+Bước 4: Chạy lại
+1. Chạy file "run_farm.bat" hoặc lệnh "python farm_rewards.py".
+
+Tool sẽ tự nhận diện driver bạn vừa copy vào và chạy bình thường.

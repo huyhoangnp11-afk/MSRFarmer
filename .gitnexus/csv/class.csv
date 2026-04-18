@@ -1,0 +1,464 @@
+id,name,filePath,startLine,endLine,isExported,content,description
+"Class:tray_app.py:FarmTrayApp","FarmTrayApp","tray_app.py",16,199,true,"LOG_DIR = ""logs""
+
+class FarmTrayApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.withdraw() # Hide initially
+        self.process = None
+        self.log_window_open = False
+        
+        # Determine Window Title and Icon
+        self.root.title(""Microsoft Rewards Farmer"")
+        try:
+            self.root.iconphoto(False, tk.PhotoImage(file=ICON_PATH))
+        except: pass
+
+        # Load Tray Icon
+        try:
+            self.icon_image = Image.open(ICON_PATH)
+        except:
+            self.icon_image = Image.new('RGB', (64, 64), color = (0, 120, 215))
+
+        self.menu = pystray.Menu(
+            pystray.MenuItem(""Status: Stopped "", self.do_nothing, enabled=False),
+            pystray.MenuItem(""Start Farming"", self.start_farming),
+            pystray.MenuItem(""Stop Farming"", self.stop_farming),
+            pystray.MenuItem(""View Logs"", self.show_log_window_thread_safe),
+            pystray.MenuItem(""Exit"", self.exit_app)
+        )
+        
+        self.icon = pystray.Icon(""MSRewardsFarmer"", self.icon_image, ""Microsoft Rewards Farmer"", self.menu)
+        
+        # Start Tray in separate thread
+        self.tray_thread = threading.Thread(target=self.icon.run)
+        self.tray_thread.daemon = True
+        self.tray_thread.start()
+
+        # Start Log Polling in Tkinter Main Loop
+        self.current_log_file = None
+        self.last_pos = 0
+        self.update_log_gui()
+        self.monitor_process_gui()
+
+    def do_nothing(self): pass
+
+    def update_menu_status(self, status, running):
+        # We need to recreate the icon menu?
+        # Accessing icon from main thread might be unsafe if icon.run() is in another thread?
+        # pystray isn't fully thread safe.
+        # But updating 'menu' property is usually atomic.
+        
+        # Better: Restart icon? No.
+        # Just notify user via balloon?
+        # Or blindly update?
+        
+        items = list(self.menu.items)
+        items[0] = pystray.MenuItem(f""Status: {status}"", self.do_nothing, enabled=False)
+        
+        # Rebuild menu
+        new_menu = pystray.Menu(*items)
+        self.icon.menu = new_menu
+
+    def start_farming(self, icon, item):
+        if self.process and self.process.poll() is None:
+            return
+            
+        cmd = [sys.executable, SCRIPT_PATH, ""--headless""] # Default hidden
+        self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=os.getcwd(), creationflags=subprocess.CREATE_NO_WINDOW)
+        self.update_menu_status(""Running "", True)
+        
+        # Notify
+        self.icon.notify(""Farming Started in Background "", ""Microsoft Rewards Farmer"")
+
+    def stop_farming(self, icon, item):
+        if self.process:
+            self.process.terminate()
+            self.process = None
+        
+        # Kill all related
+        subprocess.run(""taskkill /F /IM python.exe /IM msedgedriver.exe /IM msedge.exe"", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        self.update_menu_status(""Stopped "", False)
+        self.icon.notify(""Farming Stopped "", ""Microsoft Rewards Farmer"")
+
+    def monitor_process_gui(self):
+        # check process status periodically
+        if self.process and self.process.poll() is not None:
+            self.process = None
+            self.update_menu_status(""Stopped "", False)
+            self.icon.notify(""Process Finished"", ""Microsoft Rewards Farmer"")
+            
+        self.root.after(2000, self.monitor_process_gui)
+
+    def show_log_window_thread_safe(self, icon, item):
+        # Call from tray thread -> Schedule on main thread
+        self.root.after(0, self.open_log_window)
+
+    def open_log_window(self):
+        self.root.deiconify()
+        self.log_window_open = True
+        
+        # Setup UI if empty
+        if not self.root.winfo_children():
+            self.text_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, font=(""Consolas"", 10), bg=""#1e1e1e"", fg=""#d4d4d4"")
+            self.text_area.pack(expand=True, fill='both')
+            
+            # Tags for coloring
+            self.text_area.tag_config(""INFO"", foreground=""#d4d4d4"")
+            self.text_area.tag_config(""WARNING"", foreground=""#cca700"")
+            self.text_area.tag_config(""ERROR"", foreground=""#f44747"")
+            self.text_area.tag_config(""SUCCESS"", foreground=""#6a9955"")
+            self.text_area.tag_config(""POINTS"", foreground=""#569cd6"")
+            self.text_area.tag_config(""HEADER"", foreground=""#c586c0"", font=(""Consolas"", 10, ""bold""))
+            
+            self.root.protocol(""WM_DELETE_WINDOW"", self.hide_log_window)
+
+    def hide_log_window(self):
+        self.root.withdraw()
+        self.log_window_open = False
+
+    def get_latest_log_file(self):
+        if not os.path.exists(LOG_DIR): return None
+        files = [os.path.join(LOG_DIR, f) for f in os.li
+... [truncated]",""
+"Class:launcher_gui.py:FarmingGUI","FarmingGUI","launcher_gui.py",48,1372,true,"    return profiles
+
+class FarmingGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("" MS Rewards Family Farmer"")
+        self.root.geometry(""720x680"")
+        self.root.configure(bg='#1e1e2e')
+        
+        self.is_running = False
+        self.current_thread = None
+        self.idle_monitoring = False
+        self.idle_thread = None
+        
+        self.setup_styles()
+        self.create_widgets()
+        self.refresh_profiles()
+        self.load_config()
+        self.root.protocol(""WM_DELETE_WINDOW"", self.on_close)
+    
+    def setup_styles(self):
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # Dark theme colors
+        bg_color = '#1e1e2e'
+        card_color = '#2a2a3e'
+        accent_color = '#7c3aed'
+        text_color = '#ffffff'
+        
+        style.configure('TFrame', background=bg_color)
+        style.configure('Card.TFrame', background=card_color)
+        style.configure('TLabel', background=bg_color, foreground=text_color, font=('Segoe UI', 10))
+        style.configure('Header.TLabel', background=bg_color, foreground=text_color, font=('Segoe UI', 16, 'bold'))
+        style.configure('TButton', font=('Segoe UI', 10, 'bold'))
+        style.configure('Accent.TButton', background=accent_color, foreground='white')
+        style.configure('TCheckbutton', background=card_color, foreground=text_color)
+    
+    def create_widgets(self):
+        # Header
+        header_frame = ttk.Frame(self.root)
+        header_frame.pack(fill='x', padx=20, pady=15)
+        
+        ttk.Label(header_frame, text="" MS Rewards Family Farmer"", style='Header.TLabel').pack(side='left')
+        
+        # Dashboard button in header
+        self.btn_dashboard = tk.Button(header_frame, text="" Dashboard"", 
+                                       bg='#7c3aed', fg='white', font=('Segoe UI', 9, 'bold'),
+                                       command=self.show_dashboard)
+        self.btn_dashboard.pack(side='right', padx=5)
+        
+        # Profile List Card
+        profile_card = ttk.Frame(self.root, style='Card.TFrame', padding=15)
+        profile_card.pack(fill='x', padx=20, pady=5)
+        
+        ttk.Label(profile_card, text="" Profiles (Tối đa 6)"", style='TLabel').pack(anchor='w')
+        
+        # Profile checkboxes frame
+        self.profile_frame = ttk.Frame(profile_card, style='Card.TFrame')
+        self.profile_frame.pack(fill='x', pady=10)
+        
+        self.profile_vars = {}  # Store checkbox variables
+        
+        # Buttons Row
+        btn_frame = ttk.Frame(profile_card, style='Card.TFrame')
+        btn_frame.pack(fill='x')
+        
+        self.btn_refresh = ttk.Button(btn_frame, text="" Refresh"", command=self.refresh_profiles)
+        self.btn_refresh.pack(side='left', padx=2)
+        
+        self.btn_add = ttk.Button(btn_frame, text=""➕ Add Profile"", command=self.add_profile)
+        self.btn_add.pack(side='left', padx=2)
+        
+        self.btn_select_all = ttk.Button(btn_frame, text=""☑️ Select All"", command=self.select_all)
+        self.btn_select_all.pack(side='left', padx=2)
+        
+        self.btn_reset_today = ttk.Button(btn_frame, text=""️ Reset Today"", command=self.reset_today_history)
+        self.btn_reset_today.pack(side='right', padx=2)
+        
+        # Settings Card
+        settings_card = ttk.Frame(self.root, style='Card.TFrame', padding=15)
+        settings_card.pack(fill='x', padx=20, pady=5)
+        
+        ttk.Label(settings_card, text=""⚙️ Basic Settings"", style='TLabel').pack(anchor='w')
+        
+        settings_inner = ttk.Frame(settings_card, style='Card.TFrame')
+        settings_inner.pack(fill='x', pady=5)
+        
+        # Row 0: Speed & Auto Quota
+        ttk.Label(settings_inner, text=""⚡ Speed:"").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        self.speed_var = tk.StringVar(value="" Auto (Smart)"")
+        speed_combo = ttk.Combobox(settings_inner, textvariable=self.speed_var, width=15, state='readonly',
+                                    values=["" Auto (Smart)"", "" Safe"", "" Medium"", "" Fast"", ""⚡ Turbo""])
+        speed_combo.grid(row=0, column=1, padx=5, pady=5, sticky='w')
+        speed_combo.current(0)
+        
+        self.auto_quota_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(settings_inner, text="" Tự động nhận diện Quota"", 
+                        variable=self.auto_quota_var, style='TCheckbutton').grid(row=0, column=2, padx=15, sticky='w')
+        
+        # Row 1: Debug & Points Today
+        self.debug_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(settings_inner, text="" Chế độ Debug (Hiện Browser)"", 
+                        variable=self.debug_var, style='TCheckbutton').grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky='w')
+                        
+        self.points_today_var = tk.StringVar(value="" Điểm hôm nay: Đang lấy..."")
+    
+... [truncated]",""
+"Class:launcher_gui.py:GUILogHandler","GUILogHandler","launcher_gui.py",397,408,true,"            setup_logging()
+            
+            class GUILogHandler(_logging.Handler):
+                def __init__(self, gui):
+                    super().__init__()
+                    self.gui = gui
+                def emit(self, record):
+                    msg = record.getMessage()
+                    # Only forward important messages, skip verbose ones
+                    if any(k in msg for k in ['CLONE', 'POINTS', 'Search', 'search', 'Activity', 'Quiz', 'HOÀN', 'ĐẠT GIỚI HẠN', 'ERROR', 'WARNING', 'Driver', 'khởi tạo']):
+                        try:
+                            self.gui.root.after(0, lambda m=msg: self.gui.log(f"" {m}""))
+                        except:
+                            pass
+            
+            gui_handler = GUILogHandler(self)
+",""
+"Class:launcher_gui.py:LASTINPUTINFO","LASTINPUTINFO","launcher_gui.py",1088,1089,true,"    def get_idle_seconds(self):
+        """"""Get seconds since last user input (mouse/keyboard).""""""
+        class LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [(""cbSize"", ctypes.c_uint), (""dwTime"", ctypes.c_uint)]
+        lii = LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+",""
+"Class:launcher_gui.py:MEMORYSTATUSEX","MEMORYSTATUSEX","launcher_gui.py",1100,1111,true,"        try:
+            import ctypes
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    (""dwLength"", ctypes.c_ulong),
+                    (""dwMemoryLoad"", ctypes.c_ulong),
+                    (""ullTotalPhys"", ctypes.c_ulonglong),
+                    (""ullAvailPhys"", ctypes.c_ulonglong),
+                    (""ullTotalPageFile"", ctypes.c_ulonglong),
+                    (""ullAvailPageFile"", ctypes.c_ulonglong),
+                    (""ullTotalVirtual"", ctypes.c_ulonglong),
+                    (""ullAvailVirtual"", ctypes.c_ulonglong),
+                    (""ullAvailExtendedVirtual"", ctypes.c_ulonglong),
+                ]
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(stat)
+",""
+"Class:farm/decision.py:EarlyStopDetector","EarlyStopDetector","farm/decision.py",15,81,true,"# 1. EARLY STOP DETECTOR
+# ─────────────────────────────────────────────
+class EarlyStopDetector:
+    """"""Phát hiện khi search không còn kiếm điểm → dừng sớm để tiết kiệm thời gian.
+
+    Cách dùng:
+        detector = EarlyStopDetector()
+        for batch in ...:
+            # sau mỗi batch lấy điểm hiện tại
+            if detector.update(current_points) and detector.should_stop():
+                log(""Quota đã đạt! Dừng sớm."")
+                break
+    """"""
+
+    def __init__(self, zero_threshold: int = 3, min_samples: int = 3):
+        """"""
+        Args:
+            zero_threshold: số batch liên tiếp không kiếm được điểm trước khi dừng
+            min_samples:    số lần check tối thiểu trước khi cho phép dừng sớm
+        """"""
+        self.zero_threshold = zero_threshold
+        self.min_samples = min_samples
+        self._last_points = None
+        self._zero_streak = 0
+        self._sample_count = 0
+        self._stop_flagged = False
+
+    def update(self, current_points) -> bool:
+        """"""Cập nhật với điểm hiện tại. Trả về True nếu đọc được điểm hợp lệ.""""""
+        if not isinstance(current_points, int) or current_points <= 0:
+            return False  # Không đọc được điểm — bỏ qua
+
+        if self._last_points is None:
+            self._last_points = current_points
+            return True
+
+        delta = current_points - self._last_points
+        self._last_points = current_points
+        self._sample_count += 1
+
+        if delta <= 0:
+            self._zero_streak += 1
+            logging.debug(f""[DECISION] Zero-delta streak: {self._zero_streak}/{self.zero_threshold}"")
+        else:
+            self._zero_streak = 0  # Reset nếu vừa kiếm được điểm
+            logging.debug(f""[DECISION] +{delta} pts. Streak reset."")
+
+        return True
+
+    def should_stop(self) -> bool:
+        """"""Trả về True nếu nên dừng search sớm.""""""
+        if self._sample_count < self.min_samples:
+            return False  # Chưa đủ dữ liệu để quyết định
+        if self._zero_streak >= self.zero_threshold:
+            if not self._stop_flagged:
+                self._stop_flagged = True
+                logging.info(
+                    f""[DECISION]  EarlyStop: {self._zero_streak} batches liên tiếp không kiếm điểm. ""
+                    f""Quota đã đạt thực tế!""
+                )
+            return True
+        return False
+
+    def reset(self):
+        """"""Reset cho profile hoặc phase mới.""""""
+        self._last_points = None
+        self._zero_streak = 0
+        self._sample_count = 0
+        self._stop_flagged = False
+
+",""
+"Class:farm/query.py:QueryGenerator","QueryGenerator","farm/query.py",11,241,true,"
+
+class QueryGenerator:
+    """"""Thread-safe query generator với global lock protection + Bing Suggest""""""
+    def __init__(self):
+        self.history = set()
+        self.chain_queue = []
+        self._suggest_cache = []
+        self._suggest_seeds = [
+            ""how to"", ""best"", ""why"", ""what is"", ""top 10"",
+            ""latest"", ""new"", ""price of"", ""review"", ""where to""
+        ]
+    
+    def reset_history(self):
+        """"""Reset used query history - call between profiles to avoid pool exhaustion.""""""
+        self.history.clear()
+        self.chain_queue.clear()
+        self._suggest_cache.clear()
+        logging.info(""[QUERY] History reset. Pool sẵ được tái sử dụng."")
+
+    def generate(self):
+        """"""Thread-safe generate với global lock""""""
+        with query_gen_lock:
+            return self._generate_unsafe()
+    
+    def _generate_unsafe(self):
+        """"""Internal generate (không thread-safe, gọi qua generate())""""""
+        if self.chain_queue:
+            q = self.chain_queue.pop(0)
+            if q not in self.history:
+                self.history.add(q)
+                return q
+            
+        # 45% chance: use Bing Suggest trending query (most natural)
+        if random.random() < 0.45:
+            q = self._get_suggest_query()
+            if q and q not in self.history:
+                self.history.add(q)
+                return q
+
+        if random.random() < 0.4:
+            self._create_chain_queries()
+            if self.chain_queue:
+                return self._generate_unsafe()
+
+        for _ in range(50): 
+            q = self._create_random_query()
+            if q not in self.history:
+                self.history.add(q)
+                return q
+                
+        base = self._create_random_query()
+        return f""{base} {random.randint(100, 999)}""
+
+    def _get_suggest_query(self):
+        """"""Fetch query from Bing Suggest API (cached).""""""
+        if not self._suggest_cache:
+            self._fetch_bing_suggestions()
+        if self._suggest_cache:
+            return self._suggest_cache.pop(0)
+        return None
+
+    def _fetch_bing_suggestions(self):
+        """"""Fetch trending suggestions from Bing autocomplete API.""""""
+        try:
+            import urllib.request
+            import urllib.parse
+            seed = random.choice(self._suggest_seeds)
+            topic = random.choice(
+                VOCAB.get(""tech_products"", []) + VOCAB.get(""famous_people"", []) + 
+                VOCAB.get(""cities_global"", []) + VOCAB.get(""animals"", [])
+            )
+            query = f""{seed} {topic}""
+            url = f""https://api.bing.com/osjson.aspx?query={urllib.parse.quote(query)}""
+            
+            req = urllib.request.Request(url, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            resp = urllib.request.urlopen(req, timeout=3)
+            data = json.loads(resp.read().decode('utf-8'))
+            
+            if len(data) >= 2 and isinstance(data[1], list):
+                suggestions = [s for s in data[1] if len(s) > 5 and s != query]
+                random.shuffle(suggestions)
+                self._suggest_cache.extend(suggestions[:8])
+                logging.info(f""   [SUGGEST] Fetched {len(suggestions[:8])} trending queries from Bing"")
+        except Exception as e:
+            logging.debug(f""Bing Suggest unavailable: {e}"")
+
+    def _create_chain_queries(self):
+        chain_len = random.randint(3, 7)
+        topic = random.choice([""travel"", ""tech"", ""celeb"", ""game"", ""cooking""])
+        
+        if topic == ""travel"":
+            city = random.choice(VOCAB[""cities_vn""] + VOCAB[""cities_global""])
+            pool = [
+                f""images of {city}"", f""weather in {city} today"",
+                f""best tourist attractions in {city}"", f""cheap hotels in {city}"", 
+                f""flights to {city}"", f""{city} nightlife"", f""{city} street food"",
+                f""things to do in {city}"", f""best time to visit {city}""
+            ]
+            random.shuffle(pool)
+            self.chain_queue.extend(pool[:chain_len])
+            logging.info(f""   [SMART CHAIN] Du lịch: {city} ({chain_len} queries)"")
+
+        elif topic == ""tech"":
+            product = random.choice(VOCAB[""tech_products""])
+            pool = [
+                f""{product} official release date"", f""{product} full specifications"",
+                f""{product} vs iPhone 15"", f""{product} review video"", 
+                f""price of {product} in Vietnam"", f""{product} unboxing"",
+                f""{product} pros and cons"", f""is {product} worth buying""
+            ]
+            random.shuffle(pool)
+            self.chain_queue.extend(pool[:chain_len])
+            logging.info(f""   [SMART CHAIN] Công nghệ: {product} ({chain_len} queries)"")
+            
+        elif topic == ""celeb"":
+            person = random.choice(VOCAB[""famous_peopl
+... [truncated]",""

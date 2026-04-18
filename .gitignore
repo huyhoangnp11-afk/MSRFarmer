@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+logs/
+profiles/
+Farming_Profile/
+*.log
+*.json
+.git/
+*.zip

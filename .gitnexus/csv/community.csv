@@ -1,0 +1,13 @@
+id,label,heuristicLabel,keywords,description,enrichedBy,cohesion,symbolCount
+"comm_5","Farm","Farm",[],"","heuristic",0.7164179104477612,15
+"comm_4","Farm","Farm",[],"","heuristic",0.6666666666666666,13
+"comm_2","Farm","Farm",[],"","heuristic",0.7428571428571429,12
+"comm_6","Farm","Farm",[],"","heuristic",0.8823529411764706,11
+"comm_10","Farm","Farm",[],"","heuristic",0.5652173913043478,9
+"comm_3","Cluster_3","Cluster_3",[],"","heuristic",1,7
+"comm_12","Farm","Farm",[],"","heuristic",0.7058823529411765,7
+"comm_0","Cluster_0","Cluster_0",[],"","heuristic",0.8888888888888888,5
+"comm_11","Farm","Farm",[],"","heuristic",0.8888888888888888,5
+"comm_1","Cluster_1","Cluster_1",[],"","heuristic",0.8571428571428571,4
+"comm_8","Farm","Farm",[],"","heuristic",0.75,4
+"comm_7","Cluster_7","Cluster_7",[],"","heuristic",1,2
